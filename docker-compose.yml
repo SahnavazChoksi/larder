@@ -1,0 +1,14 @@
+# Optional: PostgreSQL for local development. SQLite works without this.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: larder
+      POSTGRES_USER: larder
+      POSTGRES_PASSWORD: larder
+    ports:
+      - "5432:5432"
+    volumes:
+      - larder_pg:/var/lib/postgresql/data
+volumes:
+  larder_pg:

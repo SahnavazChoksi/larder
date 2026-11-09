@@ -1,0 +1,5 @@
+Django>=5.2,<5.3
+djangorestframework>=3.15,<3.17
+djangorestframework-simplejwt>=5.3,<6
+# Only needed if you switch to PostgreSQL (see README)
+psycopg[binary]>=3.2,<4
