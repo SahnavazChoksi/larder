@@ -131,3 +131,55 @@ def finish_ops(locations_by_code):
         Issue.objects.filter(location=brm, equipment__isnull=True, title__icontains="Walk-in").update(
             equipment=walk_in, assigned_to="GTA Refrigeration", status=Issue.Status.IN_PROGRESS)
     daily_alerts()
+
+
+RATES = {Department.SERVICE: (17.60, 19.50), Department.KITCHEN: (19.00, 24.00), Department.DELIVERY: (17.60, 18.50),
+         Department.MANAGEMENT: (27.00, 32.00)}
+LABOUR_TARGET = {"SQ1": 0.29, "BRM": 0.34, "OAK": 0.27}  # labour cost as a share of sales
+DAILY_SALES = {"SQ1": 3600, "BRM": 2700, "OAK": 2300}
+PIN_BASE = {"SQ1": 1001, "BRM": 2001, "OAK": 3001, "CK": 4001}
+SHIFT_TIMES = {Department.SERVICE: [(time(11, 0), time(16, 0)), (time(16, 30), time(23, 0))],
+               Department.KITCHEN: [(time(10, 0), time(16, 0)), (time(15, 30), time(23, 0))],
+               Department.DELIVERY: [(time(9, 0), time(15, 0))], Department.MANAGEMENT: [(time(10, 0), time(19, 0))]}
+
+
+def seed_labour(locations, rng, manager):
+    """Hourly rates, PINs, two weeks of clock-ins sized to a realistic labour %, and this week's schedule."""
+    from .models import Shift, TimeEntry
+
+    today = timezone.localdate()
+    for loc in locations:
+        staff = list(Employee.objects.filter(location=loc, is_active=True).order_by("id"))
+        for i, e in enumerate(staff):
+            lo, hi = RATES[e.department]
+            e.hourly_rate = Decimal(str(round(rng.uniform(lo, hi), 2)))
+            e.shares_tips = e.department == Department.SERVICE
+            if i < 3:
+                e.set_pin(str(PIN_BASE[loc.code] + i))
+            e.save()
+        budget_rate = sum(float(e.hourly_rate) for e in staff) / len(staff)
+        for back in range(14, 0, -1):
+            day = today - timedelta(days=back)
+            busy = 1.3 if day.weekday() >= 4 else 1.0
+            hours_needed = DAILY_SALES.get(loc.code, 1500) * busy * LABOUR_TARGET.get(loc.code, 0.3) / budget_rate
+            rng.shuffle(staff)
+            worked = 0.0
+            for e in staff:
+                if worked >= hours_needed:
+                    break
+                start, end = rng.choice(SHIFT_TIMES[e.department])
+                cin = timezone.make_aware(datetime.combine(day, start)) + timedelta(minutes=rng.randint(-8, 10))
+                cout = timezone.make_aware(datetime.combine(day, end)) + timedelta(minutes=rng.randint(-10, 25))
+                entry = TimeEntry.objects.create(employee=e, location=loc, clock_in=cin, clock_out=cout,
+                                                 break_minutes=30 if (cout - cin).total_seconds() > 5 * 3600 else 0)
+                worked += entry.hours or 0
+        if loc.code == "SQ1":  # people on shift right now, for the time clock screen
+            for e in staff[:4]:
+                TimeEntry.objects.create(employee=e, location=loc, clock_in=timezone.now() - timedelta(minutes=rng.randint(60, 240)))
+        monday = today - timedelta(days=today.weekday())
+        for offset in range(14):
+            day = monday + timedelta(days=offset)
+            for e in rng.sample(staff, k=max(1, len(staff) * 4 // 7)):
+                start, end = rng.choice(SHIFT_TIMES[e.department])
+                Shift.objects.create(employee=e, location=loc, date=day, start=start, end=end, role=e.position,
+                                     published=offset < 7, created_by=manager)

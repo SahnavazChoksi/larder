@@ -32,11 +32,37 @@ def _scoped(qs, request, field="location"):
 class EmployeeSerializer(serializers.ModelSerializer):
     location_name = serializers.CharField(source="location.name", read_only=True)
     department_label = serializers.CharField(source="get_department_display", read_only=True)
+    pin = serializers.RegexField(r"^\d{4,8}$", write_only=True, required=False,
+                                 error_messages={"invalid": "PINs are 4 to 8 digits."})
+    has_pin = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
         fields = ["id", "location", "location_name", "department", "department_label", "name", "position",
-                  "started_on", "left_on", "is_active"]
+                  "started_on", "left_on", "is_active", "hourly_rate", "shares_tips", "pin", "has_pin"]
+
+    def get_has_pin(self, e):
+        return bool(e.pin_hash)
+
+    def _pin(self, e, pin):
+        if pin:
+            clash = Employee.objects.filter(location=e.location, is_active=True).exclude(pk=e.pk)
+            if any(other.check_pin(pin) for other in clash):
+                raise serializers.ValidationError({"pin": "Someone at this location already uses that PIN."})
+            e.set_pin(pin)
+            e.save(update_fields=["pin_hash"])
+
+    def create(self, data):
+        pin = data.pop("pin", None)
+        e = super().create(data)
+        self._pin(e, pin)
+        return e
+
+    def update(self, e, data):
+        pin = data.pop("pin", None)
+        e = super().update(e, data)
+        self._pin(e, pin)
+        return e
 
 
 @api_view(["GET"])
@@ -353,3 +379,155 @@ class DeliveryScores(APIView):
         log(request.user, "Entered delivery score",
             f"{score.get_platform_display()} week of {score.week_start:%b %d}: {score.ready_accuracy}% ready accuracy", score.location)
         return Response(DeliveryScoreSerializer(score).data, status=status.HTTP_201_CREATED)
+
+
+# ---------- scheduling, time clock, timesheets ----------
+
+from datetime import date as _date  # noqa: E402
+
+from . import labour  # noqa: E402
+from .models import Shift, TimeEntry  # noqa: E402
+
+
+def _parse_date(value, default):
+    if not value:
+        return default
+    try:
+        return _date.fromisoformat(value)
+    except ValueError:
+        raise serializers.ValidationError({"date": "Dates must look like 2026-11-08."}) from None
+
+
+class ShiftSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source="employee.name", read_only=True)
+    hours = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = Shift
+        fields = ["id", "employee", "employee_name", "location", "date", "start", "end", "role", "published", "hours"]
+        read_only_fields = ["published"]
+
+    def validate(self, data):
+        emp, loc = data.get("employee") or self.instance.employee, data.get("location") or self.instance.location
+        if emp.location_id != loc.id:
+            raise serializers.ValidationError("That employee works at another location.")
+        return data
+
+
+class Shifts(APIView):
+    permission_classes = [IsManager]
+
+    def get(self, request):
+        location = location_from_request(request)
+        today = timezone.localdate()
+        week = _parse_date(request.query_params.get("week_start"), today - timedelta(days=today.weekday()))
+        qs = Shift.objects.filter(location=location, date__gte=week, date__lt=week + timedelta(days=7)).select_related("employee")
+        people = Employee.objects.filter(location=location, is_active=True)
+        return Response({"week_start": week, "shifts": ShiftSerializer(qs, many=True).data,
+                         "employees": EmployeeSerializer(people, many=True).data})
+
+    def post(self, request):
+        s = ShiftSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        require_location(request.user, s.validated_data["location"])
+        shift = s.save(created_by=request.user)
+        return Response(ShiftSerializer(shift).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["PATCH", "DELETE"])
+@permission_classes([IsManager])
+def shift_detail(request, pk):
+    shift = get_object_or_404(Shift, pk=pk)
+    require_location(request.user, shift.location)
+    if request.method == "DELETE":
+        shift.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+    s = ShiftSerializer(shift, data=request.data, partial=True)
+    s.is_valid(raise_exception=True)
+    return Response(ShiftSerializer(s.save()).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsManager])
+def publish_week(request):
+    location = location_from_request(request)
+    week = _parse_date(request.data.get("week_start"), None)
+    if not week:
+        raise serializers.ValidationError({"week_start": "Choose a week."})
+    shifts = Shift.objects.filter(location=location, date__gte=week, date__lt=week + timedelta(days=7))
+    n = shifts.update(published=True)
+    log(request.user, "Published schedule", f"Week of {week:%b %d}: {n} shifts", location)
+    return Response({"published": n})
+
+
+class Clock(APIView):
+    """Shared kiosk: anyone logged in on the restaurant tablet can open it; the PIN says who is clocking."""
+
+    permission_classes = [IsCook]
+
+    def get(self, request):
+        location = location_from_request(request)
+        on = TimeEntry.objects.filter(location=location, clock_out__isnull=True).select_related("employee")
+        today = timezone.localdate()
+        upcoming = Shift.objects.filter(location=location, date=today, published=True).select_related("employee")
+        return Response({
+            "on_shift": [{"name": e.employee.name, "department": e.employee.get_department_display(), "since": e.clock_in} for e in on],
+            "today": ShiftSerializer(upcoming, many=True).data,
+        })
+
+    def post(self, request):
+        location = location_from_request(request)
+        emp, direction, entry = labour.clock(location, str(request.data.get("pin", "")))
+        log(request.user, f"Clocked {direction}", emp.name, location)
+        return Response({"name": emp.name, "direction": direction, "at": entry.clock_out if direction == "out" else entry.clock_in,
+                         "hours": round(entry.hours, 2) if direction == "out" else None})
+
+
+@api_view(["GET"])
+@permission_classes([IsManager])
+def timesheets(request):
+    location = location_from_request(request)
+    today = timezone.localdate()
+    start = _parse_date(request.query_params.get("start"), today - timedelta(days=today.weekday()))
+    end = _parse_date(request.query_params.get("end"), today)
+    if end < start or (end - start).days > 62:
+        raise serializers.ValidationError({"date": "Pick up to two months."})
+    return Response(labour.timesheet(location, start, end))
+
+
+class TimeEntryIn(serializers.ModelSerializer):
+    class Meta:
+        model = TimeEntry
+        fields = ["employee", "location", "clock_in", "clock_out", "break_minutes", "note"]
+
+    def validate(self, data):
+        a = data.get("clock_in") or self.instance.clock_in
+        b = data.get("clock_out", getattr(self.instance, "clock_out", None))
+        if b and b <= a:
+            raise serializers.ValidationError("Clock-out must be after clock-in.")
+        return data
+
+
+@api_view(["POST"])
+@permission_classes([IsManager])
+def time_entry_create(request):
+    s = TimeEntryIn(data=request.data)
+    s.is_valid(raise_exception=True)
+    require_location(request.user, s.validated_data["location"])
+    e = s.save(edited_by=request.user)
+    log(request.user, "Added time entry", f"{e.employee.name}: {e.hours or 0:.2f} h", e.location)
+    return Response({"id": e.id}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["PATCH"])
+@permission_classes([IsManager])
+def time_entry_detail(request, pk):
+    e = get_object_or_404(TimeEntry, pk=pk)
+    require_location(request.user, e.location)
+    before = f"{timezone.localtime(e.clock_in):%H:%M}–{timezone.localtime(e.clock_out):%H:%M}" if e.clock_out else "open"
+    s = TimeEntryIn(e, data=request.data, partial=True)
+    s.is_valid(raise_exception=True)
+    e = s.save(edited_by=request.user)
+    after = f"{timezone.localtime(e.clock_in):%H:%M}–{timezone.localtime(e.clock_out):%H:%M}" if e.clock_out else "open"
+    log(request.user, "Edited time entry", f"{e.employee.name} {timezone.localdate(e.clock_in):%b %d}: {before} → {after}", e.location)
+    return Response({"id": e.id, "hours": e.hours})

@@ -14,6 +14,9 @@ urlpatterns = [
     path("api/audit/", include("audit.urls")),
     path("api/checklists/", include("checklists.urls")),
     path("api/ops/", include("ops.urls")),
+    path("api/pos/", include("pos.urls")),
+    path("api/guests/", include("guests.urls")),
+    path("api/public/", include("pos.public_urls")),
 ]
 
 if settings.DEBUG:

@@ -38,25 +38,44 @@ export const STOCK_STATUS = {
 
 // ---------- data hook ----------
 
-/** GET a URL and keep the result. Pass null to skip. */
-export function useApi(url) {
+/** GET a URL and keep the result. Pass null to skip. pollMs > 0 refreshes quietly in the background. */
+export function useApi(url, pollMs = 0) {
   const [state, setState] = useState({ data: null, error: null, loading: Boolean(url) });
   const [tick, setTick] = useState(0);
+  const lastUrl = useRef(url);
   useEffect(() => {
     if (!url) return;
     let alive = true;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    const changed = lastUrl.current !== url;
+    lastUrl.current = url;
+    setState((s) => ({ ...s, loading: true, error: null, data: changed ? null : s.data }));
     api
       .get(url)
       .then((r) => alive && setState({ data: r.data, error: null, loading: false }))
-      .catch((e) => alive && setState({ data: null, error: errorText(e), loading: false }));
+      .catch((e) => alive && setState((s) => ({ data: s.data, error: errorText(e), loading: false })));
     return () => {
       alive = false;
     };
   }, [url, tick]);
+  useEffect(() => {
+    if (!url || !pollMs) return;
+    const t = setInterval(() => setTick((x) => x + 1), pollMs);
+    return () => clearInterval(t);
+  }, [url, pollMs]);
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { ...state, reload };
 }
+
+/** Minutes since an ISO time, re-rendering every `everyMs`. */
+export function useNow(everyMs = 15000) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), everyMs);
+    return () => clearInterval(t);
+  }, [everyMs]);
+  return now;
+}
+export const minutesSince = (iso, now = Date.now()) => (iso ? (now - new Date(iso).getTime()) / 60000 : null);
 
 // ---------- toasts ----------
 

@@ -75,3 +75,34 @@ def forecast(request):
     location = location_from_request(request)
     today = timezone.localdate()
     return Response({**build(location, today), "reorder": smart_reorder(location, today)})
+
+
+@api_view(["GET"])
+@permission_classes([IsManager])
+def service_times(request):
+    from .service_times import service_times as build
+
+    location = location_from_request(request)
+    start, end = _range(request, default_days=14)
+    return Response(build(location, start, end))
+
+
+@api_view(["GET"])
+@permission_classes([IsManager])
+def accounting_export(request):
+    from django.http import HttpResponse
+
+    from catalog.models import Location
+
+    from .accounting import purchases_csv, sales_csv
+
+    location = location_from_request(request, required=False)
+    start, end = _range(request)
+    ids = [location.id] if location else list(Location.objects.filter(id__in=request.user.location_ids()).values_list("id", flat=True))
+    kind = request.query_params.get("kind", "sales")
+    if kind not in ("sales", "purchases"):
+        fail("Choose sales or purchases.")
+    body = sales_csv(ids, start, end) if kind == "sales" else purchases_csv(ids, start, end)
+    resp = HttpResponse(body, content_type="text/csv")
+    resp["Content-Disposition"] = f'attachment; filename="larder-{kind}-{start}-to-{end}.csv"'
+    return resp

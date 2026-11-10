@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import api, { getTokens, setTokens } from "./api";
 
 const AuthContext = createContext(null);
-const RANK = { cook: 0, manager: 1, owner: 2 };
+const RANK = { cook: 0, server: 0, manager: 1, owner: 2 };
 const LOCATION_KEY = "larder.location";
 
 export function AuthProvider({ children }) {

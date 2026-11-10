@@ -34,6 +34,8 @@ def import_day(location, business_date: date, lines: list[tuple[MenuItem, int, D
     day, created = SalesDay.objects.get_or_create(location=location, business_date=business_date,
                                                   defaults={"source": source, "imported_by": user, "is_history": history})
     if not created:
+        if day.lines.filter(order__isnull=False).exists():
+            fail(f"{location.name} {business_date}: sales for this day come from Larder's POS. Importing a file too would count them twice.")
         _clear_usage(day)
         day.lines.all().delete()
         day.source, day.imported_by, day.is_history = source, user, history
@@ -73,6 +75,8 @@ def set_day_totals(location, business_date: date, totals: dict, user, source="CS
     """Covers, bills and service-charge counts for a day (from the POS daily summary)."""
     day, _ = SalesDay.objects.get_or_create(location=location, business_date=business_date,
                                             defaults={"source": source, "imported_by": user})
+    if day.lines.filter(order__isnull=False).exists():
+        fail(f"{location.name} {business_date}: covers and bills for this day already come from Larder's POS.")
     _apply_totals(day, totals)
     if day.sc_removed > day.sc_bills:
         fail(f"{location.code} {business_date}: service charge removed on more bills than had one.")

@@ -16,6 +16,11 @@ class Location(models.Model):
     city = models.CharField(max_length=60, blank=True)
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.OUTLET)
     brand = models.CharField(max_length=60, blank=True, help_text="Outlets are compared with others of the same brand")
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal("0.13"), help_text="Sales tax, e.g. 0.13 for Ontario HST")
+    service_charge_rate = models.DecimalField(max_digits=5, decimal_places=4, default=Decimal("0.15"),
+                                              help_text="Automatic service charge for large parties")
+    service_charge_party = models.PositiveSmallIntegerField(default=6, help_text="Party size that gets the service charge")
+    accepts_online_orders = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["kind", "name"]

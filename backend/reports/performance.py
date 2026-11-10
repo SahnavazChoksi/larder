@@ -138,6 +138,9 @@ def performance(user, end: date, location=None) -> dict:
     salesq, salesq_ly = _sales(ids, sq, end), _sales(ids, sq - YEAR, end - YEAR)
     days, cats, comp = _days(ids, s4, e4), _category_qty(ids, s4, e4), _complaints(ids, s4, e4)
     prep, wm, deliv = _prep(ids, s4, e4), _accuracy_complaints(ids, s4, e4), _delivery(ids, s4, e4)
+    from ops.labour import labour_totals
+
+    lab = labour_totals(ids, s4, e4)
 
     rows = []
     for o in outlets:
@@ -146,6 +149,8 @@ def performance(user, end: date, location=None) -> dict:
         m = _metrics(sales4[o.id], days[o.id], cats[o.id], comp[o.id], sales4_ly[o.id], salesq[o.id], salesq_ly[o.id],
                      prep[o.id], wm[o.id])
         m["delivery"] = {platform: _score(parts) for platform, parts in deliv[o.id].items()}
+        m["labour_pct"] = _div(lab[o.id]["cost"], sales4[o.id]) if lab[o.id]["hours"] else None
+        m["splh"] = _div(sales4[o.id], lab[o.id]["hours"]) if lab[o.id]["hours"] else None
         rows.append({"location": o.id, "name": o.name, "code": o.code, "brand": o.brand or "No brand", **m})
 
     brand_avg = {}
@@ -177,6 +182,11 @@ def performance(user, end: date, location=None) -> dict:
                 for i, v in enumerate(deliv[p.id].get(pl, [0, 0, 0, 0])):
                     parts[i] += v
             avg["delivery"][pl] = _score(parts)
+        hours = sum(lab[p.id]["hours"] for p in group)
+        cost = sum(lab[p.id]["cost"] for p in group)
+        group_sales = sum((sales4[p.id] for p in group if lab[p.id]["hours"]), Decimal(0))
+        avg["labour_pct"] = _div(cost, group_sales) if hours else None
+        avg["splh"] = _div(group_sales, hours) if hours else None
         # growth must compare like with like: only stores that traded last year
         brand_avg[b or "No brand"]["sssg_4w"] = _growth(sum((sales4[p.id] for p in same_store), Decimal(0)),
                                                         sum((sales4_ly[p.id] for p in same_store), Decimal(0)))

@@ -32,6 +32,8 @@ class SalesDay(models.Model):
 
 class SalesLine(models.Model):
     day = models.ForeignKey(SalesDay, on_delete=models.CASCADE, related_name="lines")
+    order = models.ForeignKey("pos.Order", null=True, blank=True, on_delete=models.CASCADE, related_name="sales_lines",
+                              help_text="Set when the sale came from Larder's own POS")
     menu_item = models.ForeignKey(MenuItem, on_delete=models.PROTECT)
     qty = models.PositiveIntegerField()
     net_sales = models.DecimalField(max_digits=12, decimal_places=2)

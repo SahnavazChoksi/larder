@@ -6,6 +6,15 @@ import Audit from "./pages/Audit";
 import Checklists from "./pages/Checklists";
 import Complaints from "./pages/Complaints";
 import Dashboard from "./pages/Dashboard";
+import Exports from "./pages/Exports";
+import Guests from "./pages/Guests";
+import Host from "./pages/Host";
+import Kitchen from "./pages/Kitchen";
+import OnlineOrder from "./pages/OnlineOrder";
+import POS from "./pages/POS";
+import Schedule from "./pages/Schedule";
+import ServiceTimes from "./pages/ServiceTimes";
+import TimeClock from "./pages/TimeClock";
 import Forecast from "./pages/Forecast";
 import Invoices from "./pages/Invoices";
 import Issues from "./pages/Issues";
@@ -29,6 +38,10 @@ import Wastage from "./pages/Wastage";
 const PAGES = [
   { path: "/", label: "Dashboard", group: "Overview", min: "manager", element: <Dashboard /> },
   { path: "/performance", label: "Outlet performance", group: "Overview", min: "manager", element: <Performance /> },
+  { path: "/pos", label: "POS", group: "Front of house", min: "cook", element: <POS /> },
+  { path: "/kitchen", label: "Kitchen display", group: "Front of house", min: "cook", element: <Kitchen /> },
+  { path: "/host", label: "Host stand", group: "Front of house", min: "cook", element: <Host /> },
+  { path: "/guests", label: "Guests & loyalty", group: "Front of house", min: "cook", element: <Guests /> },
   { path: "/checklists", label: "Checklists", group: "Daily operations", min: "cook", element: <Checklists /> },
   { path: "/logbook", label: "Shift logbook", group: "Daily operations", min: "cook", element: <Logbook /> },
   { path: "/issues", label: "Issues & equipment", group: "Daily operations", min: "cook", element: <Issues /> },
@@ -44,13 +57,17 @@ const PAGES = [
   { path: "/menu-engineering", label: "Menu engineering", group: "Insights", min: "manager", element: <MenuEngineering /> },
   { path: "/forecast", label: "Forecast & reorder", group: "Insights", min: "manager", element: <Forecast /> },
   { path: "/variance", label: "COGS & variance", group: "Insights", min: "manager", element: <Variance /> },
+  { path: "/service-times", label: "Service times", group: "Insights", min: "manager", element: <ServiceTimes /> },
   { path: "/sales", label: "Sales import", group: "Insights", min: "manager", element: <Sales /> },
-  { path: "/team", label: "Team & staffing", group: "Admin", min: "manager", element: <Team /> },
+  { path: "/exports", label: "Accounting export", group: "Insights", min: "manager", element: <Exports /> },
+  { path: "/time-clock", label: "Time clock", group: "Team", min: "cook", element: <TimeClock /> },
+  { path: "/schedule", label: "Schedule & timesheets", group: "Team", min: "manager", element: <Schedule /> },
+  { path: "/team", label: "Team & staffing", group: "Team", min: "manager", element: <Team /> },
   { path: "/audit", label: "Change log", group: "Admin", min: "manager", element: <Audit /> },
   { path: "/users", label: "Users", group: "Admin", min: "owner", element: <Users /> },
 ];
 
-const ROLE_LABEL = { cook: "Cook", manager: "Manager", owner: "Owner" };
+const ROLE_LABEL = { cook: "Cook", server: "Server", manager: "Manager", owner: "Owner" };
 
 function Layout() {
   const { user, logout, locations, location, setLocationId, can } = useAuth();
@@ -182,6 +199,10 @@ function Bell() {
 
 export default function App() {
   const { user, loading } = useAuth();
+  const where = useLocation();
+  if (where.pathname.startsWith("/order/")) {
+    return <Routes><Route path="/order/:code" element={<OnlineOrder />} /></Routes>;
+  }
   if (loading) return <div className="empty">Loading…</div>;
   return user ? <Layout /> : <Login />;
 }

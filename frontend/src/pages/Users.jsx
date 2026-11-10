@@ -3,7 +3,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { Card, ErrorBox, Loading, Modal, Pill, fmtDateTime, useAction, useApi } from "../ui";
 
-const ROLES = [["cook", "Cook"], ["manager", "Manager"], ["owner", "Owner"]];
+const ROLES = [["cook", "Cook"], ["server", "Server / host"], ["manager", "Manager"], ["owner", "Owner"]];
 const BLANK = { username: "", first_name: "", last_name: "", email: "", role: "cook", locations: [], is_active: true, password: "" };
 
 export default function Users() {

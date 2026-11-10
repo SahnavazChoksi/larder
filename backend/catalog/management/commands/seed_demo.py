@@ -20,6 +20,11 @@ from checklists.models import SOP, ChecklistRun, ChecklistTemplate, RunAnswer
 from checklists.seed import seed_checklists
 from ops.models import Complaint, DeliveryScore, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
 from ops.seed import finish_ops, seed_ops
+from guests.models import Guest, Message, PointsEntry, Reservation, WaitlistEntry
+from ops.models import Shift, TimeEntry
+from ops.seed import seed_labour
+from pos import seed as pos_seed
+from pos.models import Order, Payment, Table
 from purchasing.models import InvoiceScan
 from catalog.models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
 from purchasing import services as po_services
@@ -111,6 +116,7 @@ SC_REMOVED = {"SQ1": 0.09, "BRM": 0.21, "OAK": 0.07}
 PREP_MINUTES = {"SQ1": 11.0, "BRM": 12.5, "OAK": 10.0}  # average kitchen ticket time on a quiet day
 LOYALTY = {"SQ1": 0.41, "BRM": 0.27, "OAK": 0.36}  # share of bills with a loyalty member
 HISTORY_DAYS = 455  # ~15 months, so quarter-on-quarter-last-year works
+POS_DAYS = 3  # Square One's last few days run on Larder's own POS (orders, kitchen tickets, payments)
 DOW = [0.8, 0.82, 0.9, 1.0, 1.32, 1.42, 1.12]  # Mon..Sun
 OUTLET_SIZE = {"SQ1": 1.25, "BRM": 0.95, "OAK": 0.8}
 # Share of real usage that disappears without a record (over-portioning, theft, bad receiving)
@@ -146,12 +152,15 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Demo data loaded. Log in with:"))
         for username, *_, role, _, password in USERS:
             self.stdout.write(f"  {username:<6} / {password:<15} ({role.label})")
+        self.stdout.write(f"  {pos_seed.POS_SERVER[0]:<6} / {pos_seed.POS_SERVER[3]:<15} (Server, Square One)")
+        self.stdout.write("Time clock PINs: 1001, 1002, 1003 at Square One (and 2001…, 3001…, 4001… at the others)")
 
     # ------------------------------------------------------------------
 
     def wipe(self):
         self.stdout.write("Removing existing Larder data…")
-        for model in [DeliveryScore, Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
+        for model in [Payment, Order, Table, PointsEntry, Reservation, WaitlistEntry, Message, Guest, TimeEntry, Shift,
+                      DeliveryScore, Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
                       AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
                       StockCount, Wastage, TransferLine, Transfer, ProductionBatch, ParLevel, PriceHistory, MenuLine,
                       MenuItem, RecipeLine]:
@@ -166,7 +175,8 @@ class Command(BaseCommand):
         today = timezone.localdate()
         start = today - timedelta(days=days)
 
-        self.loc = {code: Location.objects.create(code=code, name=n, city=c, kind=k, brand=BRAND if k == "outlet" else "")
+        self.loc = {code: Location.objects.create(code=code, name=n, city=c, kind=k, brand=BRAND if k == "outlet" else "",
+                                                  accepts_online_orders=code == "SQ1")
                     for code, n, c, k in LOCATIONS}
         outlets = [self.loc[c] for c in OUTLET_SIZE]
         ck = self.loc["CK"]
@@ -198,6 +208,9 @@ class Command(BaseCommand):
             u.locations.set([self.loc[c] for c in locs])
             users[username] = u
         self.manager, self.cook, self.ck_cook = users["meera"], users["ravi"], users["ana"]
+        username, first, last, password = pos_seed.POS_SERVER
+        self.server = User.objects.create_user(username=username, password=password, first_name=first, last_name=last, role=Role.SERVER)
+        self.server.locations.set([self.loc["SQ1"]])
 
         # Par levels from expected daily usage × (lead time + 2 days of cover)
         daily = {o.code: {} for o in outlets}
@@ -239,6 +252,8 @@ class Command(BaseCommand):
         self.stdout.write(f"  importing {HISTORY_DAYS} days of past sales…")
         self.history(outlets, start, item_mult)
         seed_ops([*outlets, ck], self.manager, self.cook, rng)
+        pos_seed.seed_tables(outlets)
+        self.guests = pos_seed.seed_guests(rng, today)
 
         for n in range(days):
             day = start + timedelta(days=n)
@@ -246,7 +261,10 @@ class Command(BaseCommand):
             self.deliveries(day, [*outlets, ck])
             self.kitchen_day(day, ck, outlets)
             for o in outlets:
-                self.sell(o, day, n, item_mult[o.code])
+                if o.code == "SQ1" and n >= days - POS_DAYS:
+                    self.sell_pos(o, day, n, item_mult[o.code])
+                else:
+                    self.sell(o, day, n, item_mult[o.code])
                 if rng.random() < 0.18:
                     self.waste(o, day)
             if rng.random() < 0.12:
@@ -259,6 +277,9 @@ class Command(BaseCommand):
         photos = seed_checklists([*outlets, ck], self.manager, {"BRM": self.cook, "CK": self.ck_cook}, rng, min(days, 7))
         self.stdout.write(f"  checklists: 4 templates, a week of runs, {photos} demo photos")
         finish_ops(self.loc)
+        seed_labour([*outlets, ck], rng, self.manager)
+        pos_seed.live_service(self.loc["SQ1"], self.server, self.guests, [d for d, _, _ in self.menu], rng)
+        self.stdout.write(f"  front of house: {Order.objects.count()} POS orders, live service running at Square One")
         self.stdout.write(f"  {Movement.objects.count():,} ledger entries over {days} days")
 
     # ------------------------------------------------------------------
@@ -355,6 +376,18 @@ class Command(BaseCommand):
                 self.usage_since_count[outlet.code][key] = self.usage_since_count[outlet.code].get(key, 0) + qty * q
         sales_services.import_day(outlet, day, lines, self.manager, source="Toast POS" if outlet.code == "SQ1" else "Square POS",
                                   totals=self.day_totals(outlet, lines))
+
+    def sell_pos(self, outlet, day, n, mult):
+        """Same demand as sell(), but rung through the POS: orders, kitchen tickets, payments."""
+        rng = self.rng
+        plan = {}
+        for i, (dish, pop, recipe) in enumerate(self.menu):
+            qty = round(22 * pop * OUTLET_SIZE[outlet.code] * mult[i] * DOW[day.weekday()] * (1 + 0.004 * n) * rng.uniform(.86, 1.14))
+            if qty > 0:
+                plan[dish] = qty
+                for key, q in recipe:
+                    self.usage_since_count[outlet.code][key] = self.usage_since_count[outlet.code].get(key, 0) + qty * q
+        pos_seed.run_service_day(outlet, day, plan, self.server, self.guests, rng)
 
     def day_totals(self, outlet, lines):
         """Covers ≈ mains and biryani portions plus a share of starters; bills ≈ party of 2.3."""

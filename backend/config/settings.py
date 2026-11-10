@@ -31,6 +31,8 @@ INSTALLED_APPS = [
     "audit",
     "checklists",
     "ops",
+    "guests",
+    "pos",
 ]
 
 MIDDLEWARE = [
@@ -111,6 +113,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     # Send decimals as JSON numbers so the frontend can do maths on them directly.
     "COERCE_DECIMAL_TO_STRING": False,
+    "DEFAULT_THROTTLE_RATES": {"public_orders": "20/hour", "public_menu": "120/hour"},
 }
 
 SIMPLE_JWT = {
@@ -131,6 +134,21 @@ LARDER_APP_URL = os.environ.get("LARDER_APP_URL", "http://localhost:5173")
 # Invoice scanning: set ANTHROPIC_API_KEY to read invoices with Claude. Without it, lines are typed in.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 LARDER_OCR_MODEL = os.environ.get("LARDER_OCR_MODEL", "claude-sonnet-5-5")
+
+# Payments. Providers are plug-ins (see pos/payments.py). "manual" covers cash and cards taken on your
+# own terminal; add e.g. "stripe_terminal" once its adapter and keys are in place.
+LARDER_PAYMENT_PROVIDERS = os.environ.get("LARDER_PAYMENT_PROVIDERS", "manual").split(",")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+# Delivery-app adapters push orders to /api/pos/integrations/<platform>/orders/ with this secret header.
+LARDER_INTEGRATION_SECRET = os.environ.get("LARDER_INTEGRATION_SECRET", "")
+# Guest messages (waitlist "your table is ready"). "log" just records them; add an SMS adapter later.
+LARDER_MESSAGE_PROVIDER = os.environ.get("LARDER_MESSAGE_PROVIDER", "log")
+
+LOYALTY_POINTS_PER_DOLLAR = 1
+LOYALTY_REWARD_POINTS = 100   # points needed for one reward
+LOYALTY_REWARD_VALUE = Decimal("5.00")
+TICKET_TARGET_MINUTES = 15    # kitchen tickets slower than this count as late
 
 # Business settings
 FOOD_COST_TARGET = Decimal(os.environ.get("LARDER_FOOD_COST_TARGET", "0.25"))

@@ -4,12 +4,13 @@ from django.db import models
 
 class Role(models.TextChoices):
     COOK = "cook", "Cook"
+    SERVER = "server", "Server / host"
     MANAGER = "manager", "Manager"
     OWNER = "owner", "Owner"
 
 
 # Plain string keys on purpose: role values are stored as strings.
-ROLE_RANK = {"cook": 0, "manager": 1, "owner": 2}
+ROLE_RANK = {"cook": 0, "server": 0, "manager": 1, "owner": 2}
 
 
 class User(AbstractUser):

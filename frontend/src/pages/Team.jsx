@@ -1,7 +1,7 @@
 import { useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
-import { Card, Chips, ErrorBox, Loading, NumberInput, Pill, Tile, fmtDate, useAction, useApi } from "../ui";
+import { Card, Chips, ErrorBox, Loading, Modal, NumberInput, Pill, Tile, fmtDate, useAction, useApi } from "../ui";
 
 const DEPTS = [["service", "Service"], ["kitchen", "Kitchen"], ["delivery", "Delivery / packing"], ["management", "Management"]];
 
@@ -14,6 +14,17 @@ export default function Team() {
   const blank = { name: "", department: "service", position: "", started_on: "" };
   const [f, setF] = useState(blank);
   const [run, busy] = useAction();
+  const [rates, setRates] = useState({});
+  const [pinFor, setPinFor] = useState(null);
+  const [pin, setPin] = useState("");
+
+  async function patch(p, body) {
+    if (await run(() => api.patch(`/ops/employees/${p.id}/`, body), `${p.name} updated.`)) { setRates({}); people.reload(); }
+  }
+  async function savePin(e) {
+    e.preventDefault();
+    if (await run(() => api.patch(`/ops/employees/${pinFor.id}/`, { pin }), `PIN set for ${pinFor.name}.`)) { setPinFor(null); setPin(""); people.reload(); }
+  }
 
   if (staffing.error) return <ErrorBox>{staffing.error}</ErrorBox>;
   if (!staffing.data) return <Loading />;
@@ -67,12 +78,16 @@ export default function Team() {
         {!people.data ? <Loading /> : (
           <div className="tablewrap">
             <table>
-              <thead><tr><th>Name</th><th>Department</th><th>Position</th><th>Started</th><th /></tr></thead>
+              <thead><tr><th>Name</th><th>Department</th><th>Position</th><th>Started</th><th className="r">Hourly rate</th><th>Tip pool</th><th>Time-clock PIN</th><th /></tr></thead>
               <tbody>
                 {people.data.map((p) => (
                   <tr key={p.id} style={{ opacity: p.is_active ? 1 : 0.5 }}>
                     <td><b>{p.name}</b>{!p.is_active && <> <Pill>Left {fmtDate(p.left_on)}</Pill></>}</td>
                     <td>{p.department_label}</td><td className="muted">{p.position}</td><td>{fmtDate(p.started_on)}</td>
+                    <td className="r"><NumberInput value={rates[p.id] ?? p.hourly_rate ?? ""} step="0.25" label={`Rate for ${p.name}`}
+                      onChange={(v) => setRates({ ...rates, [p.id]: v })} onBlur={() => rates[p.id] !== undefined && patch(p, { hourly_rate: rates[p.id] || null })} /></td>
+                    <td><input type="checkbox" checked={p.shares_tips} aria-label={`${p.name} shares tips`} onChange={(e) => patch(p, { shares_tips: e.target.checked })} /></td>
+                    <td>{p.has_pin ? <Pill kind="good">Set</Pill> : <Pill>None</Pill>} <button className="btn sm" type="button" onClick={() => setPinFor(p)}>{p.has_pin ? "Change" : "Set"}</button></td>
                     <td className="r">{p.is_active && <button className="btn sm" type="button" onClick={() => leave(p)}>Mark as left</button>}</td>
                   </tr>
                 ))}
@@ -88,6 +103,15 @@ export default function Team() {
           <button className="btn" type="submit" disabled={busy}>Add employee</button>
         </form>
       </Card>
+      {pinFor && (
+        <Modal title={`Time-clock PIN for ${pinFor.name}`} onClose={() => setPinFor(null)}>
+          <form onSubmit={savePin} className="row">
+            <input type="password" inputMode="numeric" pattern="[0-9]{4,8}" value={pin} required aria-label="New PIN" placeholder="4–8 digits" onChange={(e) => setPin(e.target.value)} />
+            <button className="btn primary" type="submit" disabled={busy}>Save PIN</button>
+          </form>
+          <span className="small muted">Tell them in person. PINs are stored scrambled and can't be looked up later.</span>
+        </Modal>
+      )}
     </>
   );
 }

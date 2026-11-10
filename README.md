@@ -1,10 +1,11 @@
 # Larder
 
-**Restaurant back-office and food-cost control for multi-outlet kitchens.**
+**An all-in-one restaurant platform for multi-outlet groups: front of house, kitchen, back office and people.**
 
-Larder tracks every gram of stock across outlets and a central kitchen. It compares what your
-recipes say you *should* have used (from POS sales) with what you *actually* used (from deliveries,
-transfers, waste and stock counts), so you can see where food cost leaks.
+Take orders on a tablet, run the kitchen display, seat guests from the waitlist, take payments, and every
+sale flows straight into stock, food cost, performance and labour reports. Larder tracks every gram of stock
+across outlets and a central kitchen, and compares what recipes say you *should* have used with what you
+*actually* used, so you can see where food cost leaks.
 
 Built with **Django + Django REST Framework** (API) and **React + Vite** (web app).
 
@@ -14,6 +15,15 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | Area | Features |
 |---|---|
+| **POS** | Floor plan with live table status · dine-in, takeout, online and delivery orders · notes, seats, voids (manager approval once sent) · guest count with automatic large-party service charge (removable with a reason) · discounts (manager) · split payments, tips, cash change · HST · printed receipts · loyalty lookup and redemption |
+| **Kitchen display** | Tickets in order with live timers against a target · Start / Ready / Served taps are timed · pass (expo) view · rush tickets |
+| **Service times** | Wait to be seated, seated → order, waiting for a cook, cooking, ready → served, table time: averages, 90th percentile, weekday vs weekend, by hour · % of tickets over target · quoted vs actual waits |
+| **Host stand** | Walk-in waitlist with quotes and "table ready" messages · reservations · seat straight onto a free table (opens the check) |
+| **Guests & loyalty** | Guest profiles with allergies and notes · visits and spend · points earned on every paid order, rewards redeemed at the table · marketing consent recorded |
+| **Payments** | Provider plug-ins (see below): cash and stand-alone card terminals work today; card-reader integrations slot in without touching orders · refunds · Larder never stores card numbers |
+| **Online ordering** | Public pickup-ordering page per outlet (`/order/SQ1`) with live order status · secure endpoint for delivery-app adapters |
+| **Schedule & time clock** | Weekly schedule with draft/publish · PIN time clock on a shared tablet · timesheets with manager edits logged · labour cost %, sales per labour hour · tip pool split by hours |
+| **Accounting export** | Daily sales journal (sales by category, discounts, service charge, HST, tips, payments by method, voids, refunds) and purchases as CSV for QuickBooks or Xero |
 | **Outlet performance** | Each outlet vs its brand average, green better / red worse: **APC** (spend per cover), average bill, **SSSG** 4-week and quarter vs last year (same weekdays, same stores), **beverage and dessert attach** per cover, **service charge removed %**, **average prep time** Mon–Thu vs Fri–Sun, **loyalty enrollment %**, **delivery food-ready accuracy** per app, **wrong / missing items**, complaints per 1,000 covers · weekly sales vs last year · **staffing** ideal vs current vs gap · laid out like a printed weekly ops review |
 | **Menu engineering** | Popularity × margin per category (Stars, Plowhorses, Puzzles, Dogs) with what to do about each |
 | **Forecast & smart reorder** | Next 7 days of portions per dish from same-weekday history × trend · orders exactly what the forecast will run short of before each vendor's next delivery |
@@ -40,8 +50,8 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | | Cook | Manager | Owner |
 |---|:-:|:-:|:-:|
-| Do checklists with photos, read SOPs, write logbook notes, report issues, log complaints, scan invoices, count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
-| Review checklists, edit checklists and SOPs, approve scanned invoices, manage staffing and issues, see performance, costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
+| Take orders and payments, run the kitchen display, seat guests, clock in, do checklists with photos, read SOPs, write logbook notes, report issues, log complaints, scan invoices, count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
+| Discounts, void sent items and orders, refunds, schedules and timesheets, edit tables, review checklists, edit checklists and SOPs, approve scanned invoices, manage staffing and issues, see performance, costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
 | Change recipes and menu prices, manage users | | | ✅ |
 
 The API enforces these rules. The web app only hides what the API would refuse.
@@ -82,7 +92,7 @@ cd backend
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops guests pos
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -95,7 +105,7 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops guests pos
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -126,10 +136,15 @@ Open **http://localhost:5173**. The dev server forwards `/api` calls to Django.
 |---|---|---|---|
 | `owner` | `LarderOwner1` | Owner | All |
 | `meera` | `LarderManager1` | Manager | All |
+| `sofia` | `LarderServer1` | Server | Square One |
 | `ravi` | `LarderCook1` | Cook | Downtown Brampton |
 | `ana` | `LarderCook1` | Cook | Central Kitchen |
 
-These passwords are for the demo only.
+These passwords are for the demo only. Time-clock PINs: 1001, 1002, 1003 at Square One (2001…, 3001…, 4001… elsewhere).
+
+Square One runs on Larder's POS for the last three demo days and has a live service in progress when the seed
+finishes: tables at every stage, a late ticket on the kitchen display, an online order, people on the waitlist and
+bookings tonight. The online ordering page is at http://localhost:5173/order/SQ1.
 
 For the Django admin (http://127.0.0.1:8000/admin/), create a superuser with `python manage.py createsuperuser`.
 
@@ -173,6 +188,37 @@ python manage.py seed_demo
 | `LARDER_OCR_MODEL` | `claude-sonnet-5-5` | Model used to read invoices |
 | `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | console | Email for notifications. By default emails are printed in the Django terminal |
 | `LARDER_APP_URL` | `http://localhost:5173` | Used for links in emails |
+
+| `LARDER_PAYMENT_PROVIDERS` | `manual` | Comma-separated payment providers to enable |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | empty | For the Stripe Terminal provider once it's finished |
+| `LARDER_INTEGRATION_SECRET` | empty | Shared secret delivery-app adapters send in `X-Larder-Secret` |
+| `LARDER_MESSAGE_PROVIDER` | `log` | Guest texts (waitlist). `log` records them only |
+
+## Payments
+
+Larder takes payments through **providers**: small plug-ins in `backend/pos/payments.py`.
+
+- **`manual`** (on by default): cash, plus cards run on a stand-alone terminal (Moneris, Square, Clover…). Staff run the card,
+  then confirm in Larder with the approval code. Refunds happen on the terminal and are recorded in Larder.
+- **`stripe_terminal`**: a documented skeleton for card readers connected to Larder. Not active until finished.
+
+Larder never sees card numbers. A provider stores only its own reference and non-sensitive details (card brand, last 4).
+That keeps card data with the processor, which is what PCI DSS expects from a POS like this.
+
+**Adding a provider** (Stripe Terminal, Square Terminal, Moneris Go…):
+
+1. Subclass `PaymentProvider` in `pos/payments.py`; implement `start()` (approve now or return a pending action),
+   `refund()`, and `handle_webhook()` if the processor sends events.
+2. Register it in `PROVIDERS` and add its key to `LARDER_PAYMENT_PROVIDERS`.
+3. Point the processor's webhook at `/api/pos/payments/webhook/<provider>/`.
+
+The POS screen, payment records, refunds, tips, reports and the accounting export already work with any provider.
+
+## Delivery apps
+
+Adapters (or a middleware such as Otter or Deliverect) post orders to `/api/pos/integrations/<platform>/orders/`
+with header `X-Larder-Secret`. Orders go straight to the kitchen display, are marked paid on the app, and count in
+sales, stock and reports. See the docstring in `pos/views.py` for the body format.
 
 ### Scheduled alerts
 
@@ -243,6 +289,13 @@ All endpoints are under `/api/` and need `Authorization: Bearer <access token>` 
 | `checklists/templates/` · `checklists/sops/` · `checklists/compliance/` · `checklists/readings/` | GET POST PUT PATCH | |
 | `reports/performance/` · `reports/menu-engineering/` · `reports/forecast/` | GET | |
 | `purchasing/invoices/` + `{id}/` `{id}/approve/` `{id}/discard/` | GET POST PATCH | Upload is multipart `file` |
+| `pos/floor/` `pos/menu/` `pos/orders/` + `{id}/lines/` `{id}/send/` `{id}/payments/` `{id}/close/` `{id}/void/` … | GET POST PATCH | The POS |
+| `pos/kds/` · `pos/tickets/{id}/{start,ready,served,recall}/` | GET POST | Kitchen display |
+| `pos/payments/webhook/{provider}/` · `pos/integrations/{platform}/orders/` | POST | No login; verified by signature / secret |
+| `public/menu/{code}/` · `public/orders/{code}/` · `public/order-status/{token}/` | GET POST | Online ordering, no login, rate-limited |
+| `guests/` · `guests/reservations/` · `guests/waitlist/` | GET POST PATCH | |
+| `ops/shifts/` · `ops/clock/` · `ops/timesheets/` · `ops/time-entries/` | GET POST PATCH | |
+| `reports/service-times/` · `reports/accounting-export/?kind=sales\|purchases` | GET | |
 | `ops/staffing/` `ops/staffing/plan/` `ops/employees/` `ops/complaints/` `ops/equipment/` `ops/issues/` `ops/handover/` `ops/notifications/` | GET POST PATCH | |
 
 ---
@@ -257,10 +310,12 @@ backend/
   stock/         the ledger: movements, pars, counts, wastage, transfers, production (+ services.py)
   purchasing/    purchase orders, receiving, reorder suggestions, invoice scanning
   sales/         POS sales import (item sales and daily covers/bills)
-  reports/       variance, dashboard, performance, menu engineering, forecast (read-only)
+  reports/       variance, dashboard, performance, menu engineering, forecast, service times, accounting export
   audit/         change log
   checklists/    SOPs, opening/closing checklists, photo answers, reviews, compliance, readings
-  ops/           staffing, complaints, equipment issues, handover logbook, notifications, send_alerts command
+  ops/           staffing, schedule, time clock, labour, complaints, equipment issues, logbook, notifications, send_alerts
+  pos/           tables, orders, kitchen tickets, payments + provider plug-ins, online ordering, delivery intake
+  guests/        guest profiles, loyalty points, reservations, waitlist, guest messaging plug-ins
 frontend/
   src/pages/     one file per screen
   src/ui.jsx     shared components, formatting, charts
@@ -280,8 +335,9 @@ S3 with signed URLs), because anyone with a photo's link could otherwise open it
 
 ## Roadmap
 
-- Direct POS integrations (Toast, Square, Lightspeed APIs) instead of CSV
-- Unit conversions per item (buy in cases, count in kg)
-- Batch/lot tracking for expiry instead of "last delivery" estimates
-- Labour cost and sales per labour hour (needs a scheduling/timeclock feed)
-- SMS alerts and a mobile app wrapper
+- Finish a card-reader provider (Stripe Terminal or Moneris) and online card payment for pickup orders
+- Offline mode for the POS (queue orders locally when the internet drops, sync later)
+- Kitchen and receipt printers (ESC/POS) and cash drawer
+- Real SMS provider for waitlist texts
+- Direct POS-data imports from Toast, Square and Lightspeed for groups not using Larder's POS
+- Unit conversions per item (buy in cases, count in kg) and batch/lot expiry tracking
