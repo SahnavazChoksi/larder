@@ -14,7 +14,7 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | Area | Features |
 |---|---|
-| **Outlet performance** | Each outlet vs its brand average, green better / red worse: **APC** (spend per cover), average bill, **SSSG** 4-week and quarter vs last year (same weekdays, same stores), **beverage and dessert attach** per cover, **service charge removed %**, complaints per 1,000 covers · weekly sales vs last year · **staffing** required vs actual vs short |
+| **Outlet performance** | Each outlet vs its brand average, green better / red worse: **APC** (spend per cover), average bill, **SSSG** 4-week and quarter vs last year (same weekdays, same stores), **beverage and dessert attach** per cover, **service charge removed %**, **average prep time** Mon–Thu vs Fri–Sun, **loyalty enrollment %**, **delivery food-ready accuracy** per app, **wrong / missing items**, complaints per 1,000 covers · weekly sales vs last year · **staffing** ideal vs current vs gap · laid out like a printed weekly ops review |
 | **Menu engineering** | Popularity × margin per category (Stars, Plowhorses, Puzzles, Dogs) with what to do about each |
 | **Forecast & smart reorder** | Next 7 days of portions per dish from same-weekday history × trend · orders exactly what the forecast will run short of before each vendor's next delivery |
 | **Invoice scanning** | Photo or PDF of a supplier invoice → lines read, matched to your items, lb converted to kg, price changes flagged → a manager approves and it's booked as a received delivery |
@@ -204,9 +204,12 @@ date,location,pos_code,qty,net_sales
 Covers, bills and service charges come from the POS daily summary, a second CSV:
 
 ```csv
-date,location,covers,bills,service_charge_bills,service_charge_removed
-2026-11-08,BRM,112,48,6,1
+date,location,covers,bills,service_charge_bills,service_charge_removed,tickets,avg_prep_minutes,loyalty_bills
+2026-11-08,BRM,112,48,6,1,55,11.4,17
 ```
+
+Everything after `bills` is optional. `tickets` and `avg_prep_minutes` come from the kitchen display (KDS).
+Delivery-app scores (food-ready accuracy, rating) are entered weekly on the Outlet performance page.
 
 Upload either on the **Sales import** page, or `POST /api/sales/import/` with the file in a `file` field.
 Tick **Past sales** (or send `history=1`) to load last year's figures for growth reports without touching stock.

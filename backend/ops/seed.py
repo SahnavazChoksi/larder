@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from .models import Complaint, Department, Employee, Equipment, HandoverNote, Issue, StaffingPlan
+from .models import Complaint, DeliveryScore, Department, Employee, Equipment, HandoverNote, Issue, StaffingPlan
 from .services import daily_alerts
 
 FIRST = ["Aarav", "Priya", "Liam", "Fatima", "Noah", "Simran", "Ethan", "Mei", "Omar", "Chloe", "Arjun", "Sofia",
@@ -26,15 +26,22 @@ STAFF = {
     "CK": {Department.KITCHEN: (12, 6), Department.DELIVERY: (3, 3), Department.MANAGEMENT: (1, 1)},
 }
 COMPLAINT_RATE = {"SQ1": 0.25, "BRM": 0.55, "OAK": 0.18}  # per day
+# delivery orders with a wrong or missing item, per day (Brampton's packing station is the weak spot)
+WRONG_MISSING_RATE = {"SQ1": (0.18, 0.22), "BRM": (0.33, 0.45), "OAK": (0.12, 0.15)}
+WRONG = ["Got chicken tikka instead of paneer tikka", "Mild instead of spicy", "Wrong naan (butter, not garlic)", "Jeera rice instead of biryani"]
+MISSING = ["Missing garlic naan", "No raita in the bag", "Mango lassi missing", "Missing one main", "No cutlery or napkins"]
+# platform -> location -> (food-ready accuracy %, rating)
+DELIVERY = {"uber_eats": {"SQ1": (88, 4.6), "BRM": (79, 4.3), "OAK": (91, 4.7)},
+            "doordash": {"SQ1": (85, 4.5), "BRM": (81, 4.4), "OAK": (89, 4.6)}}
 COMPLAINTS = [
     ("food", "Butter chicken was lukewarm", "Replaced the dish"),
     ("wait", "Waited 40 minutes for mains on a Friday", "Apologised, comped dessert"),
-    ("accuracy", "Delivery order missing garlic naan", "Refunded through the app"),
+    ("missing", "Delivery order missing garlic naan", "Refunded through the app"),
     ("service", "Server didn't come back to take a drink order", "Manager spoke to the table"),
     ("food", "Biryani too salty", "Remade it"),
     ("clean", "Sticky table at the window", "Cleaned, reminded the team"),
     ("price", "Didn't expect the automatic service charge", "Explained the policy; removed it"),
-    ("accuracy", "Got paneer makhani instead of palak paneer", "Swapped and comped"),
+    ("wrong", "Got paneer makhani instead of palak paneer", "Swapped and comped"),
 ]
 EQUIPMENT = {
     "outlet": [("Walk-in cooler", "Refrigeration"), ("Reach-in fridge", "Refrigeration"), ("Tandoor oven", "Cooking"),
@@ -79,6 +86,22 @@ def seed_ops(locations, manager, cook, rng):
                                              channel=rng.choice(["in_person", "in_person", "review", "delivery", "phone"]),
                                              detail=detail, action_taken=action, comped=Decimal(rng.choice(["0", "0", "6.95", "12.50", "22.95"])),
                                              logged_by=manager)
+        if loc.code in WRONG_MISSING_RATE:
+            wrong_rate, missing_rate = WRONG_MISSING_RATE[loc.code]
+            for back in range(60, 0, -1):
+                for cat, rate, texts in (("wrong", wrong_rate, WRONG), ("missing", missing_rate, MISSING)):
+                    if rng.random() < rate:
+                        Complaint.objects.create(location=loc, occurred_on=today - timedelta(days=back), category=cat,
+                                                 channel="delivery", detail=rng.choice(texts), action_taken="Refunded through the app",
+                                                 comped=Decimal(rng.choice(["4.75", "6.95", "16.95"])), logged_by=manager)
+            monday = today - timedelta(days=today.weekday())
+            for platform, by_loc in DELIVERY.items():
+                acc, rating = by_loc[loc.code]
+                for w in range(1, 9):
+                    DeliveryScore.objects.create(
+                        location=loc, platform=platform, week_start=monday - timedelta(weeks=w), orders=rng.randint(90, 160),
+                        ready_accuracy=Decimal(str(round(min(99, acc + rng.uniform(-4, 4)), 1))),
+                        rating=Decimal(str(round(min(5, rating + rng.uniform(-0.1, 0.1)), 2))), entered_by=manager)
         for back in (3, 2, 1):
             shift, body, important = rng.choice(NOTES)
             note = HandoverNote.objects.create(location=loc, business_date=today - timedelta(days=back), shift=shift,

@@ -18,7 +18,7 @@ from accounts.models import Role, User
 from audit.models import AuditEntry
 from checklists.models import SOP, ChecklistRun, ChecklistTemplate, RunAnswer
 from checklists.seed import seed_checklists
-from ops.models import Complaint, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
+from ops.models import Complaint, DeliveryScore, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
 from ops.seed import finish_ops, seed_ops
 from purchasing.models import InvoiceScan
 from catalog.models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
@@ -108,6 +108,8 @@ BRAND = "Saffron Lane"
 # How much each outlet grew vs last year (drives SSSG); and how often guests ask to remove service charge
 GROWTH = {"SQ1": 0.17, "BRM": 0.05, "OAK": 0.11}
 SC_REMOVED = {"SQ1": 0.09, "BRM": 0.21, "OAK": 0.07}
+PREP_MINUTES = {"SQ1": 11.0, "BRM": 12.5, "OAK": 10.0}  # average kitchen ticket time on a quiet day
+LOYALTY = {"SQ1": 0.41, "BRM": 0.27, "OAK": 0.36}  # share of bills with a loyalty member
 HISTORY_DAYS = 455  # ~15 months, so quarter-on-quarter-last-year works
 DOW = [0.8, 0.82, 0.9, 1.0, 1.32, 1.42, 1.12]  # Mon..Sun
 OUTLET_SIZE = {"SQ1": 1.25, "BRM": 0.95, "OAK": 0.8}
@@ -149,7 +151,7 @@ class Command(BaseCommand):
 
     def wipe(self):
         self.stdout.write("Removing existing Larder data…")
-        for model in [Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
+        for model in [DeliveryScore, Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
                       AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
                       StockCount, Wastage, TransferLine, Transfer, ProductionBatch, ParLevel, PriceHistory, MenuLine,
                       MenuItem, RecipeLine]:
@@ -363,7 +365,12 @@ class Command(BaseCommand):
         bills = max(1, round(covers / rng.uniform(2.1, 2.5)))
         sc_bills = round(bills * rng.uniform(0.10, 0.16))  # large parties get an automatic service charge
         removed = sum(1 for _ in range(sc_bills) if rng.random() < SC_REMOVED[outlet.code])
-        return {"covers": covers, "bills": bills, "sc_bills": sc_bills, "sc_removed": removed}
+        tickets = round(bills * rng.uniform(1.05, 1.25))  # dine-in plus delivery tickets on the KDS
+        busy = 1 + 0.18 * (tickets / max(1, 40 * OUTLET_SIZE[outlet.code]) - 1)  # busier days run slower
+        prep = PREP_MINUTES[outlet.code] * max(0.8, busy) * rng.uniform(0.94, 1.06)
+        loyalty = sum(1 for _ in range(bills) if rng.random() < LOYALTY[outlet.code])
+        return {"covers": covers, "bills": bills, "sc_bills": sc_bills, "sc_removed": removed,
+                "tickets": tickets, "prep_minutes": round(prep * tickets, 1), "loyalty_bills": loyalty}
 
     def history(self, outlets, start, item_mult):
         """Past POS sales for trends and year-on-year growth. No stock usage: Larder wasn't running then."""

@@ -3,7 +3,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { Card, Chips, Empty, ErrorBox, HBars, Loading, Pill, Tile, daysAgo, fmtDate, money, useAction, useApi } from "../ui";
 
-const CATEGORIES = [["food", "Food quality"], ["service", "Service"], ["wait", "Wait time"], ["accuracy", "Wrong or missing item"], ["clean", "Cleanliness"], ["price", "Price / bill"]];
+const CATEGORIES = [["food", "Food quality"], ["service", "Service"], ["wait", "Wait time"], ["wrong", "Wrong item"], ["missing", "Missing item"], ["clean", "Cleanliness"], ["price", "Price / bill"]];
 const CHANNELS = [["in_person", "In person"], ["phone", "Phone"], ["review", "Online review"], ["delivery", "Delivery app"]];
 
 export default function Complaints() {

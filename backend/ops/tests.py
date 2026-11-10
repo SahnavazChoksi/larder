@@ -50,7 +50,8 @@ class PerformanceTests(TestCase):
             for back in range(28):
                 d = self.end - timedelta(days=back)
                 import_day(loc, d, [(self.main, now, Decimal(20 * now)), (self.drink, 30, Decimal(150))], self.owner,
-                           totals={"covers": 100, "bills": 40, "sc_bills": 10, "sc_removed": 1}, history=True)
+                           totals={"covers": 100, "bills": 40, "sc_bills": 10, "sc_removed": 1,
+                                   "tickets": 50, "prep_minutes": 500, "loyalty_bills": 20}, history=True)
                 import_day(loc, d - timedelta(days=364), [(self.main, before, Decimal(20 * before))], self.owner,
                            totals={"covers": 100, "bills": 40}, history=True)
 
@@ -61,6 +62,8 @@ class PerformanceTests(TestCase):
         self.assertAlmostEqual(a["sssg_4w"], 2550 / 2000 - 1)
         self.assertAlmostEqual(a["bev_attach"], 0.3)
         self.assertAlmostEqual(a["sc_removed_pct"], 0.1)
+        self.assertAlmostEqual(a["prep_weekday"], 10.0)
+        self.assertAlmostEqual(a["loyalty_pct"], 0.5)
         brand = r["brand_avg"]["B"]
         self.assertAlmostEqual(brand["sssg_4w"], (2550 + 1950) / 4000 - 1)
 

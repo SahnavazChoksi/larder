@@ -13,8 +13,9 @@ from stock.services import ZERO, fail, record
 from .models import SalesDay, SalesLine
 
 ITEM_COLUMNS = ["date", "location", "pos_code", "qty", "net_sales"]
-SUMMARY_COLUMNS = ["date", "location", "covers", "bills"]  # + optional service_charge_bills, service_charge_removed
-TOTAL_FIELDS = ("covers", "bills", "sc_bills", "sc_removed")
+SUMMARY_COLUMNS = ["date", "location", "covers", "bills"]
+# optional: service_charge_bills, service_charge_removed, tickets, avg_prep_minutes, loyalty_bills
+TOTAL_FIELDS = ("covers", "bills", "sc_bills", "sc_removed", "tickets", "loyalty_bills")
 
 
 def _clear_usage(day: SalesDay):
@@ -36,9 +37,7 @@ def import_day(location, business_date: date, lines: list[tuple[MenuItem, int, D
         _clear_usage(day)
         day.lines.all().delete()
         day.source, day.imported_by, day.is_history = source, user, history
-    for field, value in (totals or {}).items():
-        if field in TOTAL_FIELDS and value is not None:
-            setattr(day, field, max(0, int(value)))
+    _apply_totals(day, totals or {})
     day.save()
 
     merged: dict[int, list] = {}
@@ -62,13 +61,19 @@ def import_day(location, business_date: date, lines: list[tuple[MenuItem, int, D
     return day
 
 
+def _apply_totals(day, totals: dict):
+    for field in TOTAL_FIELDS:
+        if totals.get(field) is not None:
+            setattr(day, field, max(0, int(totals[field])))
+    if totals.get("prep_minutes") is not None:
+        day.prep_minutes = max(Decimal(0), Decimal(str(totals["prep_minutes"]))).quantize(Decimal("0.1"))
+
+
 def set_day_totals(location, business_date: date, totals: dict, user, source="CSV import") -> SalesDay:
     """Covers, bills and service-charge counts for a day (from the POS daily summary)."""
     day, _ = SalesDay.objects.get_or_create(location=location, business_date=business_date,
                                             defaults={"source": source, "imported_by": user})
-    for field in TOTAL_FIELDS:
-        if totals.get(field) is not None:
-            setattr(day, field, max(0, int(totals[field])))
+    _apply_totals(day, totals)
     if day.sc_removed > day.sc_bills:
         fail(f"{location.code} {business_date}: service charge removed on more bills than had one.")
     day.save()
@@ -112,8 +117,12 @@ def parse_summary(reader):
                 "covers": int(row["covers"] or 0), "bills": int(row["bills"] or 0),
                 "sc_bills": int(row.get("service_charge_bills") or 0),
                 "sc_removed": int(row.get("service_charge_removed") or 0),
+                "loyalty_bills": int(row.get("loyalty_bills") or 0),
             }
-        except ValueError:
+            tickets = int(row.get("tickets") or 0)
+            avg = Decimal(row.get("avg_prep_minutes") or "0")
+            totals |= {"tickets": tickets, "prep_minutes": avg * tickets}
+        except (ValueError, InvalidOperation):
             fail(f"Row {n}: dates must be YYYY-MM-DD and counts whole numbers.")
         out[(row["location"].upper(), d)] = totals
     return out
@@ -131,7 +140,8 @@ def import_csv(raw: bytes, user, allowed_location_ids: set[int], history=False) 
         kind, groups = "summary", parse_summary(reader)
     else:
         fail("Unrecognised columns. Item sales need: " + ", ".join(ITEM_COLUMNS)
-             + ". A daily summary needs: " + ", ".join(SUMMARY_COLUMNS) + " (plus optional service_charge_bills, service_charge_removed).")
+             + ". A daily summary needs: " + ", ".join(SUMMARY_COLUMNS)
+             + " (plus optional service_charge_bills, service_charge_removed, tickets, avg_prep_minutes, loyalty_bills).")
     if not groups:
         fail("The file has no rows.")
     locations = {loc.code.upper(): loc for loc in Location.objects.all()}

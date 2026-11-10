@@ -29,7 +29,7 @@ export default function Sales() {
   function sampleCsv(kind) {
     const today = daysAgo(0);
     const rows = kind === "summary"
-      ? ["date,location,covers,bills,service_charge_bills,service_charge_removed", `${today},${location.code},112,48,6,1`]
+      ? ["date,location,covers,bills,service_charge_bills,service_charge_removed,tickets,avg_prep_minutes,loyalty_bills", `${today},${location.code},112,48,6,1,55,11.4,17`]
       : ["date,location,pos_code,qty,net_sales", ...(menu.data || []).slice(0, 4).map((m) => `${today},${location.code},${m.pos_code},10,${(m.price * 10).toFixed(2)}`)];
     const blob = new Blob([rows.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
@@ -54,8 +54,8 @@ export default function Sales() {
       <Card title="Import from your POS">
         <p className="small muted" style={{ margin: 0 }}>
           Two CSV exports from your POS. <b>Item sales</b>: <code>date, location, pos_code, qty, net_sales</code>. Each import books recipe
-          usage against stock. <b>Daily summary</b>: <code>date, location, covers, bills, service_charge_bills, service_charge_removed</code>,
-          which powers APC, attach ratios and service-charge reports. Location is the code (this one is <b>{location.code}</b>). Importing a day again replaces it.
+          usage against stock. <b>Daily summary</b>: <code>date, location, covers, bills</code> plus optional <code>service_charge_bills, service_charge_removed, tickets,
+          avg_prep_minutes, loyalty_bills</code>, which powers APC, attach ratios, prep time, loyalty and service-charge reports. Location is the code (this one is <b>{location.code}</b>). Importing a day again replaces it.
         </p>
         <div className="row">
           <input type="file" accept=".csv,text/csv" ref={file} aria-label="Sales CSV file" />

@@ -136,7 +136,7 @@ textarea { width: 100%; resize: vertical; }
 .better { color: var(--good); font-weight: 600; }
 .sheet th, .sheet td { text-align: center; }
 .sheet td:first-child, .sheet th:first-child { text-align: left; }
-.sheet .brand { background: var(--surface-2); font-weight: 600; }
+.sheet .brand, .sheet tr.brand td { background: var(--surface-2); font-weight: 600; }
 .bell { position: relative; }
 .bell .dot { position: absolute; top: -4px; right: -4px; background: var(--bad); color: #fff; border-radius: 99px; font-size: 10px; padding: 0 5px; font-weight: 700; }
 .dropdown { position: absolute; right: 0; top: calc(100% + 6px); width: 360px; max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .15); z-index: 20; }

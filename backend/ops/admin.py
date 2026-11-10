@@ -1,8 +1,9 @@
 from django.contrib import admin
 
-from .models import Complaint, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
+from .models import Complaint, DeliveryScore, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
 
 admin.site.register(StaffingPlan)
+admin.site.register(DeliveryScore)
 admin.site.register(Equipment)
 admin.site.register(HandoverNote)
 admin.site.register(Notification)

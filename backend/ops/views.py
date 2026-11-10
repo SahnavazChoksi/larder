@@ -12,7 +12,9 @@ from audit.services import log
 from catalog.models import Location
 
 from . import services
-from .models import Complaint, Department, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
+from .models import (
+    Complaint, DeliveryScore, Department, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan,
+)
 
 
 def _name(user):
@@ -302,3 +304,52 @@ def notifications_read(request):
     if ids:
         qs = qs.filter(id__in=ids)
     return Response({"marked": qs.update(read_at=timezone.now())})
+
+
+# ---------- delivery app scores ----------
+
+class DeliveryScoreSerializer(serializers.ModelSerializer):
+    location_name = serializers.CharField(source="location.name", read_only=True)
+    platform_label = serializers.CharField(source="get_platform_display", read_only=True)
+
+    class Meta:
+        model = DeliveryScore
+        fields = ["id", "location", "location_name", "platform", "platform_label", "week_start", "orders", "ready_accuracy", "rating"]
+        validators = []  # we upsert instead of rejecting duplicates
+
+    def validate_ready_accuracy(self, v):
+        if v is not None and not 0 <= v <= 100:
+            raise serializers.ValidationError("Enter a percentage from 0 to 100.")
+        return v
+
+    def validate_rating(self, v):
+        if v is not None and not 0 <= v <= 5:
+            raise serializers.ValidationError("Ratings are 0 to 5.")
+        return v
+
+    def validate_week_start(self, v):
+        return v - timedelta(days=v.weekday())  # always store the Monday
+
+
+class DeliveryScores(APIView):
+    permission_classes = [IsManager]
+
+    def get(self, request):
+        since = timezone.localdate() - timedelta(weeks=int(request.query_params.get("weeks", 8)))
+        qs = _scoped(DeliveryScore.objects.filter(week_start__gte=since).select_related("location"), request)
+        return Response(DeliveryScoreSerializer(qs, many=True).data)
+
+    def post(self, request):
+        """Add or replace one week's score for a location and platform."""
+        s = DeliveryScoreSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        d = s.validated_data
+        require_location(request.user, d["location"])
+        score, _ = DeliveryScore.objects.update_or_create(
+            location=d["location"], platform=d["platform"], week_start=d["week_start"],
+            defaults={"orders": d.get("orders", 0), "ready_accuracy": d.get("ready_accuracy"), "rating": d.get("rating"),
+                      "entered_by": request.user},
+        )
+        log(request.user, "Entered delivery score",
+            f"{score.get_platform_display()} week of {score.week_start:%b %d}: {score.ready_accuracy}% ready accuracy", score.location)
+        return Response(DeliveryScoreSerializer(score).data, status=status.HTTP_201_CREATED)

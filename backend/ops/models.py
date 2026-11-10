@@ -51,7 +51,8 @@ class Complaint(models.Model):
         FOOD = "food", "Food quality"
         SERVICE = "service", "Service"
         WAIT = "wait", "Wait time"
-        ACCURACY = "accuracy", "Wrong or missing item"
+        WRONG = "wrong", "Wrong item"
+        MISSING = "missing", "Missing item"
         CLEAN = "clean", "Cleanliness"
         PRICE = "price", "Price / bill"
 
@@ -162,3 +163,25 @@ class Notification(models.Model):
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["user", "read_at"])]
         constraints = [models.UniqueConstraint(fields=["user", "key"], condition=~models.Q(key=""), name="one_alert_per_key")]
+
+
+class DeliveryScore(models.Model):
+    """Weekly scores from delivery-app partner dashboards (entered by a manager or imported)."""
+
+    class Platform(models.TextChoices):
+        UBER_EATS = "uber_eats", "Uber Eats"
+        DOORDASH = "doordash", "DoorDash"
+        SKIP = "skip", "SkipTheDishes"
+
+    location = models.ForeignKey(Location, on_delete=models.CASCADE, related_name="delivery_scores")
+    platform = models.CharField(max_length=10, choices=Platform.choices)
+    week_start = models.DateField(help_text="Monday of the week")
+    orders = models.PositiveIntegerField(default=0)
+    ready_accuracy = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True,
+                                         help_text="% of orders marked ready when the food was actually ready")
+    rating = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    entered_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        ordering = ["-week_start", "location", "platform"]
+        unique_together = [("location", "platform", "week_start")]

@@ -13,6 +13,7 @@ urlpatterns = [
     path("issues/<int:pk>/", views.issue_detail, name="issue"),
     path("handover/", views.Handover.as_view(), name="handover"),
     path("handover/<int:pk>/read/", views.handover_read, name="handover-read"),
+    path("delivery-scores/", views.DeliveryScores.as_view(), name="delivery-scores"),
     path("notifications/", views.notifications, name="notifications"),
     path("notifications/read/", views.notifications_read, name="notifications-read"),
 ]
