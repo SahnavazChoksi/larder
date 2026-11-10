@@ -15,13 +15,13 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | Area | Features |
 |---|---|
-| **POS** | Floor plan with live table status · dine-in, takeout, online and delivery orders · notes, seats, voids (manager approval once sent) · guest count with automatic large-party service charge (removable with a reason) · discounts (manager) · split payments, tips, cash change · HST · printed receipts · loyalty lookup and redemption |
-| **Kitchen display** | Tickets in order with live timers against a target · Start / Ready / Served taps are timed · pass (expo) view · rush tickets |
+| **POS** | Picture tiles (photo or emoji) by menu section with icons, search by name or code (press `/`) · veg / non-veg mark, chef’s pick, new and spice badges · options per dish: sizes (single/double/triple), sauces and flavours, add-ons that cost extra and use stock · ⓘ on every dish: description, allergens, what it’s made with, what to suggest · the guest’s allergies (from their profile, or ticked by the server) flag every dish that contains them and ask before adding · “suggest with” after each dish for quick upsells · Floor plan with live table status · dine-in, takeout, online and delivery orders · notes, seats, voids (manager approval once sent) · guest count with automatic large-party service charge (removable with a reason) · discounts (manager) · split payments, tips, cash change · HST · printed receipts · loyalty lookup and redemption |
+| **Kitchen display** | Chosen options and the guest’s allergies printed on every ticket · Tickets in order with live timers against a target · Start / Ready / Served taps are timed · pass (expo) view · rush tickets |
 | **Service times** | Wait to be seated, seated → order, waiting for a cook, cooking, ready → served, table time: averages, 90th percentile, weekday vs weekend, by hour · % of tickets over target · quoted vs actual waits |
 | **Host stand** | Walk-in waitlist with quotes and "table ready" messages · reservations · seat straight onto a free table (opens the check) |
 | **Guests & loyalty** | Guest profiles with allergies and notes · visits and spend · points earned on every paid order, rewards redeemed at the table · marketing consent recorded |
 | **Payments** | Provider plug-ins (see below): cash and stand-alone card terminals work today; card-reader integrations slot in without touching orders · refunds · Larder never stores card numbers |
-| **Online ordering** | Public pickup-ordering page per outlet (`/order/SQ1`) with live order status · secure endpoint for delivery-app adapters |
+| **Online ordering** | Public pickup-ordering page per outlet (`/order/SQ1`) with the same picture menu, options and allergen filter · live order status · secure endpoint for delivery-app adapters |
 | **Schedule & time clock** | Weekly schedule with draft/publish · PIN time clock on a shared tablet · timesheets with manager edits logged · labour cost %, sales per labour hour · tip pool split by hours |
 | **Accounting export** | Daily sales journal (sales by category, discounts, service charge, HST, tips, payments by method, voids, refunds) and purchases as CSV for QuickBooks or Xero |
 | **Outlet performance** | Each outlet vs its brand average, green better / red worse: **APC** (spend per cover), average bill, **SSSG** 4-week and quarter vs last year (same weekdays, same stores), **beverage and dessert attach** per cover, **service charge removed %**, **average prep time** Mon–Thu vs Fri–Sun, **loyalty enrollment %**, **delivery food-ready accuracy** per app, **wrong / missing items**, complaints per 1,000 covers · weekly sales vs last year · **staffing** ideal vs current vs gap · laid out like a printed weekly ops review |
@@ -37,7 +37,7 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 | **Opening & closing checklists** | Managers build checklists per location type · tasks can require a photo (taken on the phone camera) or a reading with limits, e.g. walk-in 0–4 °C, cash over/short ±$5 · each task links to its SOP · staff can't submit until everything is done · managers review photos and readings, then approve, flag or reopen · dashboard shows missed checklists, out-of-range readings and on-time rate |
 | **SOP library** | Step-by-step procedures (food safety, cleaning, cash, security) searchable by everyone, edited by managers |
 | **Stock** | Live stock per location from an append-only ledger · par levels · low-stock and expiry flags · stock counts that record the difference · per-item movement history |
-| **Recipes & costing** | Dishes made of ingredients and in-house preps · plate cost rolls up through sub-recipes · food cost % and the price needed to hit target · allergens roll up too |
+| **Recipes & costing** | Dishes made of ingredients and in-house preps · plate cost rolls up through sub-recipes · food cost % and the price needed to hit target · allergens roll up from ingredients, plus any the dish must declare · each dish’s menu card: photo upload, icon, description, badges, options, suggestions · option groups with prices and stock use |
 | **Purchasing** | Purchase orders (draft → sent → received) · reorder suggestions from par levels net of open orders · receiving updates stock and the ingredient's latest price |
 | **Central kitchen** | Prep demand from outlets · production batches that consume ingredients and produce preps · stock check before cooking |
 | **Transfers** | Outlet requests → kitchen dispatches → outlet receives · short deliveries flagged |
@@ -111,12 +111,19 @@ python manage.py seed_demo
 python manage.py runserver
 ```
 
-`seed_demo` builds a fictional chain (three outlets around the GTA plus a central kitchen) and
+`seed_demo` builds a fictional smash-burger chain, *Smash Lane* (three outlets around the GTA plus a central kitchen), and
 simulates 30 days of trading: daily POS sales, deliveries, kitchen production, transfers, weekly
 counts and wastage, plus 15 months of past sales (for year-on-year growth), a week of opening and
 closing checklists with placeholder photos, staff, complaints, equipment and handover notes. It plants a
 few problems for the alerts to catch: a missed closing, a warm walk-in (which opens an issue), short
-staffing at the central kitchen and a high service-charge removal rate at Brampton. It takes a minute or two. Run `python manage.py seed_demo --reset` to start over.
+staffing at the central kitchen and a high service-charge removal rate at Brampton. It takes a few minutes. Run `python manage.py seed_demo --reset` to start over.
+
+The demo menu (about 80 dishes across smash, exhibition, chicken, fried-chicken and veggie burgers, mac & cheese,
+sides, salads, kids, shakes, drinks, coffee & matcha and desserts) follows a real Bengaluru smash-burger menu
+used as a reference: the same dishes, descriptions, sizes, add-ons and declared allergens (egg, nuts, milk in
+the bun, mushroom in the smash sauce and garlic mayo). Rupee prices are converted to Canadian dollars
+(₹30 ≈ $1). Ingredient quantities and supplier prices are estimates. Change any of it in
+`backend/catalog/demo_menu.py`, or on the **Recipes** page once it's loaded.
 
 ### 2. Frontend (React app on port 5173)
 
@@ -239,8 +246,8 @@ Export daily item sales as CSV:
 
 ```csv
 date,location,pos_code,qty,net_sales
-2026-11-08,BRM,BC01,31,711.45
-2026-11-08,BRM,BN01,52,205.40
+2026-11-08,BRM,SB01,31,416.95
+2026-11-08,BRM,SD01,52,517.40
 ```
 
 - `location` is the location code (SQ1, BRM, OAK in the demo)
@@ -272,7 +279,8 @@ All endpoints are under `/api/` and need `Authorization: Bearer <access token>` 
 | `auth/token/` · `auth/token/refresh/` | POST | Log in / refresh |
 | `auth/me/` | GET | Current user, their locations and kitchens |
 | `auth/users/` | GET POST PATCH | Owner only |
-| `locations/` · `vendors/` · `items/` · `menu-items/` | GET (+ writes by role) | `items/{id}/recipe/` and `menu-items/{id}/recipe/` PUT replace a recipe |
+| `locations/` · `vendors/` · `items/` · `menu-items/` | GET (+ writes by role) | `items/{id}/recipe/` and `menu-items/{id}/recipe/` PUT replace a recipe · `menu-items/{id}/photo/` POST multipart `photo` |
+| `menu-categories/` · `modifier-groups/` | GET POST PATCH (PUT) | POS sections (icon, kind) · option groups with their options |
 | `stock/levels/?location=` | GET | On hand, par, status, value, shelf life |
 | `stock/pars/` | POST | Set par levels |
 | `stock/movements/?location=&item=` | GET | The ledger |

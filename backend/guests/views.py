@@ -79,7 +79,7 @@ def guest_detail(request, pk):
             "type": o.get_type_display(), "table": o.table.name if o.table else None, "guests": o.guests,
             "server": o.server.display_name if o.server else None, "total": float(o.total), "tips": float(o.tips()),
             "discount": float(o.discount), "discount_reason": o.discount_reason,
-            "items": [{"name": line.name, "qty": line.qty, "note": line.note, "price": float(line.unit_price)}
+            "items": [{"name": line.display_name, "qty": line.qty, "note": line.note, "price": float(line.unit_price)}
                       for line in o.lines.all() if line.status != OrderLine.Status.VOID],
         } for o in orders],
         "order_count": closed.count(),

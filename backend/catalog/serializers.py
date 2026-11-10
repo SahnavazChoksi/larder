@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Item, Location, MenuItem, PriceHistory, Vendor
+from .models import Item, Location, MenuCategory, MenuItem, Modifier, ModifierGroup, PriceHistory, Vendor
 
 
 class LocationSerializer(serializers.ModelSerializer):
@@ -58,8 +58,20 @@ class MenuItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MenuItem
-        fields = ["id", "pos_code", "name", "category", "price", "is_active",
-                  "plate_cost", "food_cost_pct", "margin", "lines", "allergens"]
+        fields = ["id", "pos_code", "name", "category", "price", "is_active", "icon", "photo", "description", "diet",
+                  "spice_level", "is_chef_pick", "is_new", "contains", "dietary_note", "pairs_with", "modifier_groups",
+                  "sort_order", "plate_cost", "food_cost_pct", "margin", "lines", "allergens", "ingredient_allergens"]
+        read_only_fields = ["photo"]
+
+    ingredient_allergens = serializers.SerializerMethodField()
+
+    def get_ingredient_allergens(self, m):
+        return sorted(m.ingredient_allergens())
+
+    def validate_spice_level(self, v):
+        if v > 3:
+            raise serializers.ValidationError("Spice goes from 0 (none) to 3.")
+        return v
 
     def _cost(self, menu_item):
         # cache per object: several fields need it
@@ -114,3 +126,71 @@ class PriceHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = PriceHistory
         fields = ["id", "price", "recorded_on", "source", "vendor_name"]
+
+
+class MenuCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MenuCategory
+        fields = ["id", "name", "icon", "kind", "sort_order"]
+
+
+class ModifierSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    item_name = serializers.CharField(source="item.name", read_only=True, default=None)
+
+    class Meta:
+        model = Modifier
+        fields = ["id", "name", "price", "item", "item_name", "qty", "extra_item", "extra_qty", "allergens", "is_veg",
+                  "is_default", "is_active", "sort_order"]
+
+
+class ModifierGroupSerializer(serializers.ModelSerializer):
+    options = ModifierSerializer(many=True)
+    dishes = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ModifierGroup
+        fields = ["id", "name", "label", "min_choices", "max_choices", "sort_order", "options", "dishes"]
+
+    def get_dishes(self, g):
+        return [{"id": d.id, "name": d.name} for d in g.menu_items.all()]
+
+    def validate(self, data):
+        lo, hi = data.get("min_choices", 0), data.get("max_choices", 1)
+        if hi and lo > hi:
+            raise serializers.ValidationError("Required picks can't be more than the maximum.")
+        names = [o["name"].strip().lower() for o in data.get("options", [])]
+        if len(names) != len(set(names)):
+            raise serializers.ValidationError("Two options have the same name.")
+        return data
+
+    def _save_options(self, group, options):
+        keep = []
+        for i, o in enumerate(options):
+            oid = o.pop("id", None)
+            o.setdefault("sort_order", i)
+            obj = (group.options.filter(pk=oid).first() if oid else None) or group.options.filter(name=o["name"]).first()
+            if obj:
+                for k, v in o.items():
+                    setattr(obj, k, v)
+                obj.save()
+            else:
+                obj = Modifier.objects.create(group=group, **o)
+            keep.append(obj.id)
+        # options already used on orders stay in history: retire rather than delete
+        group.options.exclude(id__in=keep).update(is_active=False)
+
+    def create(self, data):
+        options = data.pop("options", [])
+        group = ModifierGroup.objects.create(**data)
+        self._save_options(group, options)
+        return group
+
+    def update(self, group, data):
+        options = data.pop("options", None)
+        for k, v in data.items():
+            setattr(group, k, v)
+        group.save()
+        if options is not None:
+            self._save_options(group, options)
+        return group

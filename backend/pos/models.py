@@ -162,6 +162,8 @@ class OrderLine(models.Model):
     name = models.CharField(max_length=100, help_text="Copy of the dish name when ordered")
     qty = models.PositiveSmallIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=8, decimal_places=2)
+    modifiers = models.JSONField(default=list, blank=True,
+                                 help_text="Choices made when ordered: [{id, name, group, price}]; unit_price includes them")
     note = models.CharField(max_length=120, blank=True, help_text="e.g. extra spicy, no onion")
     seat = models.PositiveSmallIntegerField(null=True, blank=True)
     status = models.CharField(max_length=4, choices=Status.choices, default=Status.NEW)
@@ -171,6 +173,11 @@ class OrderLine(models.Model):
 
     class Meta:
         ordering = ["id"]
+
+    @property
+    def display_name(self):
+        extras = ", ".join(m["name"] for m in self.modifiers)
+        return f"{self.name} ({extras})" if extras else self.name
 
 
 class Payment(models.Model):

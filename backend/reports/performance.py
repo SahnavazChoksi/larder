@@ -18,7 +18,7 @@ from django.db.models import Count, Sum
 from catalog.models import Location
 from sales.models import SalesDay, SalesLine
 
-ATTACH = {"bev": "Drinks", "dessert": "Desserts"}
+ATTACH = {"bev": "drink", "dessert": "dessert"}  # menu category kinds
 YEAR = timedelta(days=364)  # 52 weeks: keeps weekdays lined up
 
 
@@ -79,12 +79,16 @@ def _score(parts):
 
 
 def _category_qty(ids, start, end):
+    """Portions sold per location, by course kind (drink, dessert)."""
+    from catalog.models import MenuCategory
+
+    kinds = {name: kind for name, kind in MenuCategory.kind_map().items() if kind in ATTACH.values()}
     rows = SalesLine.objects.filter(day__location_id__in=ids, day__business_date__gte=start, day__business_date__lte=end,
-                                    menu_item__category__in=ATTACH.values()) \
+                                    menu_item__category__in=list(kinds)) \
         .values("day__location", "menu_item__category").order_by().annotate(q=Sum("qty"))
     out = defaultdict(lambda: defaultdict(int))
     for r in rows:
-        out[r["day__location"]][r["menu_item__category"]] = r["q"] or 0
+        out[r["day__location"]][kinds[r["menu_item__category"]]] += r["q"] or 0
     return out
 
 

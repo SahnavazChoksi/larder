@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
+from catalog.models import MenuCategory
 from guests.models import Guest, Reservation, WaitlistEntry
 
 from . import services
@@ -39,7 +40,8 @@ def seed_guests(rng, today, count=140):
         guests.append(Guest(name=name, phone=f"416555{1000 + i:04d}", email=f"guest{i}@example.com",
                             is_member=member, joined_on=today - timedelta(days=rng.randint(10, 400)) if member else None,
                             marketing_opt_in=member and rng.random() < 0.6,
-                            allergies=rng.choice(["", "", "", "", "Peanuts", "Shellfish", "Dairy"]),
+                            allergies=rng.choice(["", "", "", "", "", "", "Peanuts", "Egg", "Dairy", "Mushrooms",
+                                                       "Tree nuts", "Gluten"]),
                             points=rng.randint(0, 260) if member else 0))
     Guest.objects.bulk_create(guests)
     return list(Guest.objects.all())
@@ -50,12 +52,36 @@ def _at(day, start, length, rng):
     return timezone.make_aware(t)
 
 
-def run_service_day(outlet, day, plan, server, guests, rng, busy=1.0) -> dict:
+NOTES = ["", "", "", "", "no pickles", "sauce on the side", "no onion", "extra crispy", "cut in half"]
+
+
+def _options(dish, rng, stocked):
+    """What a guest might pick: mostly the usual, sometimes a bigger size or an add-on the outlet has in stock."""
+    picks = []
+    for g in dish.modifier_groups.all():
+        options = [m for m in g.options.all() if m.is_active and all(i.id in stocked for i, _ in m.usage())]
+        if not options:
+            continue
+        if g.min_choices:
+            usual = next((m for m in options if m.is_default), options[0])
+            picks.append(rng.choice(options) if rng.random() < 0.3 else usual)
+        elif rng.random() < 0.18:
+            picks.append(rng.choice(options))
+    return [m.id for m in picks]
+
+
+def _add(order, dish, qty, server, rng, stocked, note=None):
+    services.add_line(order, dish, qty, server, note=rng.choice(NOTES) if note is None else note,
+                      modifiers=_options(dish, rng, stocked), default_modifiers=True)
+
+
+def run_service_day(outlet, day, plan, server, guests, rng, busy=1.0, stocked=frozenset()) -> dict:
     """Turn a day's planned portions into real orders, tickets and payments with realistic timings."""
     menu = [dish for dish, qty in plan.items() for _ in range(qty)]
     rng.shuffle(menu)
-    mains = [d for d in menu if d.category in ("Mains",)]
-    others = [d for d in menu if d.category not in ("Mains",)]
+    main_cats = set(MenuCategory.names_of_kind(MenuCategory.Kind.MAIN))
+    mains = [d for d in menu if d.category in main_cats]
+    others = [d for d in menu if d.category not in main_cats]
     tables = list(Table.objects.filter(location=outlet, is_active=True))
     weekend = day.weekday() >= 4
     orders = []
@@ -67,7 +93,7 @@ def run_service_day(outlet, day, plan, server, guests, rng, busy=1.0) -> dict:
         extra = min(len(others), round(size * rng.uniform(1.0, 2.2)))
         dishes += [others.pop() for _ in range(extra)]
         orders.append((kind, size, dishes))
-    while others:  # drinks/sides-only orders, e.g. a chai to go
+    while others:  # drinks/sides-only orders, e.g. a shake to go
         orders.append(("takeout", 1, [others.pop() for _ in range(min(3, len(others)))]))
     for kind, size, dishes in orders:
         lunch = rng.random() < 0.35
@@ -82,11 +108,8 @@ def run_service_day(outlet, day, plan, server, guests, rng, busy=1.0) -> dict:
         else:
             o = services.open_order(outlet, None, type=Order.Type.DELIVERY, channel=rng.choice(["uber_eats", "doordash"]),
                                     external_ref=f"D{rng.randint(10000, 99999)}", at=opened)
-        counts = {}
         for d in dishes:
-            counts[d] = counts.get(d, 0) + 1
-        for d, q in counts.items():
-            services.add_line(o, d, q, server, note=rng.choice(["", "", "", "extra spicy", "mild", "no onion"]))
+            _add(o, d, 1, server, rng, stocked)
         order_wait = rng.uniform(3, 9) * (1.3 if peak else 1) if kind == "dine_in" else rng.uniform(0.2, 1)
         sent = opened + timedelta(minutes=order_wait)
         ticket = services.send_to_kitchen(o, server, at=sent)
@@ -123,18 +146,19 @@ def run_service_day(outlet, day, plan, server, guests, rng, busy=1.0) -> dict:
                                          seated_at=added + timedelta(minutes=waited), status=WaitlistEntry.Status.SEATED)
 
 
-def live_service(outlet, server, guests, menu, rng):
+def live_service(outlet, server, guests, menu, rng, stocked=frozenset()):
     """A service in progress 'now': tables at every stage, an online order, people waiting, bookings tonight."""
     now = timezone.now()
     tables = list(Table.objects.filter(location=outlet).order_by("id"))
-    mains = [m for m in menu if m.category == "Mains"]
-    sides = [m for m in menu if m.category in ("Breads", "Sides", "Drinks")]
+    kinds = MenuCategory.kind_map()
+    mains = [m for m in menu if kinds.get(m.category) == MenuCategory.Kind.MAIN and m.category != "Kids"]
+    sides = [m for m in menu if kinds.get(m.category) in (MenuCategory.Kind.SIDE, MenuCategory.Kind.DRINK)]
 
     def table_order(table, guests_n, minutes_ago, stage, guest=None):
         o = services.open_order(outlet, server, table=table, guests=guests_n, guest=guest, at=now - timedelta(minutes=minutes_ago))
         for _ in range(guests_n):
-            services.add_line(o, rng.choice(mains), 1, server)
-        services.add_line(o, rng.choice(sides), max(1, guests_n // 2), server)
+            _add(o, rng.choice(mains), 1, server, rng, stocked)
+        _add(o, rng.choice(sides), max(1, guests_n // 2), server, rng, stocked, note="")
         if stage == "seated":
             return o
         t = services.send_to_kitchen(o, server, at=now - timedelta(minutes=minutes_ago - 5))
@@ -153,8 +177,8 @@ def live_service(outlet, server, guests, menu, rng):
     table_order(tables[7], 6, 48, "eating")       # party of 6 → automatic service charge
     online = services.open_order(outlet, None, type=Order.Type.ONLINE, channel="website", customer_name="Jade Lam",
                                  customer_phone="4165550199", at=now - timedelta(minutes=6))
-    services.add_line(online, mains[0], 2, None)
-    services.add_line(online, sides[0], 2, None)
+    _add(online, mains[0], 2, None, rng, stocked, note="")
+    _add(online, sides[0], 2, None, rng, stocked, note="")
     services.send_to_kitchen(online, None, at=now - timedelta(minutes=6))
 
     for name, size, quoted, ago in (("Patel", 4, 20, 12), ("Nguyen", 2, 10, 3)):

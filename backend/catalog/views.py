@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -8,10 +9,10 @@ from rest_framework.response import Response
 from accounts.permissions import IsManager, IsOwner
 from audit.services import log
 
-from .models import Item, Location, MenuItem, MenuLine, RecipeLine, Vendor
+from .models import Item, Location, MenuCategory, MenuItem, MenuLine, ModifierGroup, RecipeLine, Vendor
 from .serializers import (
-    ItemSerializer, LocationSerializer, MenuItemSerializer, PriceHistorySerializer,
-    RecipeInSerializer, VendorSerializer,
+    ItemSerializer, LocationSerializer, MenuCategorySerializer, MenuItemSerializer, ModifierGroupSerializer,
+    PriceHistorySerializer, RecipeInSerializer, VendorSerializer,
 )
 
 READ_ACTIONS = ("list", "retrieve")
@@ -105,8 +106,9 @@ class MenuItemViewSet(viewsets.ModelViewSet):
     """Dishes with live plate cost. Managers can see costs; only owners change recipes or prices."""
 
     serializer_class = MenuItemSerializer
-    queryset = MenuItem.objects.all()
+    queryset = MenuItem.objects.prefetch_related("pairs_with", "modifier_groups")
     http_method_names = ["get", "post", "patch", "put", "head", "options"]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_permissions(self):
         return [IsManager()] if self.action in READ_ACTIONS else [IsOwner()]
@@ -143,3 +145,59 @@ class MenuItemViewSet(viewsets.ModelViewSet):
             detail += f", price {_money(old_price)} → {_money(dish.price)}"
         log(request.user, "Changed dish recipe", detail)
         return Response(MenuItemSerializer(dish).data)
+
+    @action(detail=True, methods=["post"])
+    def photo(self, request, pk=None):
+        """Upload (multipart, field "photo") or remove ({"remove": true}) the picture on POS tiles and the online menu."""
+        dish = self.get_object()
+        if str(request.data.get("remove", "")).lower() in ("1", "true"):
+            dish.photo.delete(save=True)
+            log(request.user, "Removed dish photo", dish.name)
+            return Response(MenuItemSerializer(dish, context={"request": request}).data)
+        upload = request.FILES.get("photo")
+        if not upload:
+            raise ValidationError({"detail": "Choose a picture."})
+        if upload.size > 5 * 1024 * 1024:
+            raise ValidationError({"detail": "Pictures must be under 5 MB."})
+        if not (upload.content_type or "").startswith("image/"):
+            raise ValidationError({"detail": "That file isn't a picture."})
+        if dish.photo:
+            dish.photo.delete(save=False)
+        dish.photo.save(f"{dish.pos_code}-{upload.name}"[-90:], upload, save=True)
+        log(request.user, "Changed dish photo", dish.name)
+        return Response(MenuItemSerializer(dish, context={"request": request}).data)
+
+
+class MenuCategoryViewSet(viewsets.ModelViewSet):
+    """POS sections: icon, order and course kind. Everyone reads; owners change."""
+
+    serializer_class = MenuCategorySerializer
+    queryset = MenuCategory.objects.all()
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_permissions(self):
+        return [IsAuthenticated()] if self.action in READ_ACTIONS else [IsOwner()]
+
+    def perform_create(self, serializer):
+        log(self.request.user, "Added menu category", serializer.save().name)
+
+    def perform_update(self, serializer):
+        log(self.request.user, "Updated menu category", serializer.save().name)
+
+
+class ModifierGroupViewSet(viewsets.ModelViewSet):
+    """Options like size, sauce and add-ons, with their prices and stock use."""
+
+    serializer_class = ModifierGroupSerializer
+    queryset = ModifierGroup.objects.prefetch_related("options__item", "menu_items")
+    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+
+    def get_permissions(self):
+        return [IsManager()] if self.action in READ_ACTIONS else [IsOwner()]
+
+    def perform_create(self, serializer):
+        log(self.request.user, "Added option group", serializer.save().name)
+
+    def perform_update(self, serializer):
+        g = serializer.save()
+        log(self.request.user, "Updated option group", f"{g.name}: {g.options.filter(is_active=True).count()} options")

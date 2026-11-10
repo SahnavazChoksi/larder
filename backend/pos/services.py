@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from catalog.models import Modifier
 from sales.models import SalesDay, SalesLine
 from stock.models import Movement
 from stock.services import fail, record
@@ -50,14 +51,48 @@ def open_order(location, user, *, type=Order.Type.DINE_IN, table=None, guests=1,
     return order
 
 
-def add_line(order: Order, menu_item, qty: int, user, note="", seat=None, price=None) -> OrderLine:
+def resolve_modifiers(menu_item, ids, *, defaults=False) -> list[Modifier]:
+    """Check the chosen options against the dish's groups. defaults=True fills required picks nobody made
+    (used for delivery-app and seed orders, where the app has already asked the guest)."""
+    ids = list(ids or [])
+    if len(ids) != len(set(ids)):
+        fail("Each option can only be picked once.")
+    groups = {g.id: g for g in menu_item.modifier_groups.all()}
+    chosen = list(Modifier.objects.filter(id__in=ids, is_active=True).select_related("group"))
+    if len(chosen) != len(ids):
+        fail("One of the options isn't available any more.")
+    by_group: dict[int, list[Modifier]] = {}
+    for m in chosen:
+        if m.group_id not in groups:
+            fail(f"{m.name} isn't an option for {menu_item.name}.")
+        by_group.setdefault(m.group_id, []).append(m)
+    for g in groups.values():
+        picked = by_group.get(g.id, [])
+        if defaults and len(picked) < g.min_choices:
+            extra = [m for m in g.options.filter(is_active=True).order_by("-is_default", "sort_order", "id")
+                     if m not in picked][:g.min_choices - len(picked)]
+            picked = picked + extra
+            chosen += extra
+        if len(picked) < g.min_choices:
+            fail(f"Pick {'a' if g.min_choices == 1 else g.min_choices} {g.name.lower()} for {menu_item.name}.")
+        if g.max_choices and len(picked) > g.max_choices:
+            fail(f"{menu_item.name}: up to {g.max_choices} {g.name.lower()}.")
+    return sorted(chosen, key=lambda m: (m.group.sort_order, m.group_id, m.sort_order, m.id))
+
+
+def add_line(order: Order, menu_item, qty: int, user, note="", seat=None, price=None, modifiers=None,
+             default_modifiers=False) -> OrderLine:
     _require_open(order)
     if not menu_item.is_active:
         fail(f"{menu_item.name} is off the menu.")
     if not 1 <= qty <= 99:
         fail("Quantity must be between 1 and 99.")
+    mods = resolve_modifiers(menu_item, modifiers, defaults=default_modifiers)
+    base = menu_item.price if price is None else price
     line = OrderLine.objects.create(order=order, menu_item=menu_item, name=menu_item.name, qty=qty,
-                                    unit_price=menu_item.price if price is None else price, note=note[:120], seat=seat,
+                                    unit_price=money(base + sum((m.price for m in mods), ZERO)), note=note[:120], seat=seat,
+                                    modifiers=[{"id": m.id, "name": m.name, "group": m.group.name, "price": float(m.price)}
+                                               for m in mods],
                                     created_by=user)
     order.recalc()
     return line
@@ -283,10 +318,20 @@ def book_sale(order: Order, user):
         loyalty_bills=F("loyalty_bills") + (1 if member else 0),
     )
     usage: dict[int, list] = {}
+    mod_ids = {m["id"] for line in lines for m in line.modifiers}
+    mods = {m.id: m for m in Modifier.objects.filter(id__in=mod_ids).select_related("item", "extra_item")}
+
+    def use(item, qty):
+        entry = usage.setdefault(item.id, [item, Decimal(0)])
+        entry[1] += qty
+
     for line in lines:
         for ml in line.menu_item.lines.select_related("item"):
-            entry = usage.setdefault(ml.item_id, [ml.item, Decimal(0)])
-            entry[1] += ml.qty * line.qty
+            use(ml.item, ml.qty * line.qty)
+        for chosen in line.modifiers:
+            m = mods.get(chosen["id"])
+            for item, qty in (m.usage() if m else []):
+                use(item, qty * line.qty)
     for item, qty in usage.values():
         record(order.location, item, Movement.Kind.SALE, -qty, user, f"ORDER-{order.id}", order.business_date)
 

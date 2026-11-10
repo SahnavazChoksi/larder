@@ -189,3 +189,62 @@ textarea { width: 100%; resize: vertical; }
 
 .order-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
 .order-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; }
+
+/* ---------- picture menu (POS and online ordering) ---------- */
+.menu-browser { display: flex; flex-direction: column; gap: 10px; }
+.menu-search { flex: 1; min-width: 180px; font-size: 15px; padding: 9px 12px; border-radius: 8px; }
+.cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.cat { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 5px 13px 5px 7px; font-weight: 600; font-size: 13px; cursor: pointer; }
+.cat .emo { font-size: 20px; line-height: 1; }
+.cat.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 10px; }
+.dish { position: relative; }
+.dish-tap { width: 100%; height: 100%; min-height: 170px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px 10px 10px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; cursor: pointer; transition: transform .08s; font: inherit; color: inherit; }
+.dish-tap:hover:not(:disabled) { border-color: var(--accent); }
+.dish-tap:active:not(:disabled) { transform: scale(.97); background: var(--accent-soft); }
+.dish-tap:disabled { opacity: .55; cursor: default; }
+.dish.warn .dish-tap { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); }
+.pic { display: grid; place-items: center; border-radius: 12px; background: var(--surface-2); overflow: hidden; flex: none; }
+.pic.md { width: 72px; height: 72px; } .pic.md .emo { font-size: 44px; }
+.pic.lg { width: 110px; height: 110px; } .pic.lg .emo { font-size: 68px; }
+.pic img { width: 100%; height: 100%; object-fit: cover; }
+.emo { line-height: 1; }
+.dish-name { font-weight: 600; line-height: 1.2; font-size: 14px; }
+.dish-meta { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.dish-badges { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; min-height: 18px; }
+.dish-alert { font-size: 11px; font-weight: 700; color: var(--bad); }
+.dish-info { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font: italic 700 13px Georgia, serif; color: var(--muted); cursor: pointer; }
+.dish-info:hover { color: var(--accent); border-color: var(--accent); }
+.dish-more { position: absolute; top: 6px; left: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 6px; font-size: 10px; font-weight: 700; padding: 2px 5px; color: var(--accent); cursor: pointer; }
+.badge { font-size: 10px; font-weight: 700; letter-spacing: .03em; border-radius: 5px; padding: 1px 5px; text-transform: uppercase; }
+.badge.chef { background: var(--warn-soft); color: var(--warn); }
+.badge.new { background: var(--info-soft); color: var(--info); }
+.badge.spice { background: var(--bad-soft); color: var(--bad); letter-spacing: -.1em; }
+.diet { display: inline-grid; place-items: center; width: 13px; height: 13px; border: 1.5px solid; border-radius: 2px; vertical-align: -1px; flex: none; }
+.diet i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.diet.veg { color: var(--good); } .diet.nonveg { color: var(--bad); }
+.alg-row { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.alg { font-size: 11px; border-radius: 5px; padding: 1px 6px; background: var(--surface-2); color: var(--ink); white-space: nowrap; }
+.alg.hit { background: var(--bad-soft); color: var(--bad); font-weight: 700; }
+.alg-filter { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+.alg-filter summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.alg-filter[open] { gap: 8px; }
+.info-head { display: flex; gap: 14px; align-items: flex-start; }
+.stack { display: flex; flex-direction: column; gap: 5px; }
+.pair-row, .suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.suggest { background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; }
+.pair { border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 5px 11px; font-size: 13px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.pair:hover:not(:disabled) { border-color: var(--accent); }
+.pair.warn { border-color: var(--bad); }
+.opt-group { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.opt-group legend { font-weight: 700; padding: 0; margin-bottom: 4px; }
+.opt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.opt { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 9px 10px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 2px; font: inherit; color: inherit; }
+.opt.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+.opt.warn { border-color: var(--bad); }
+.btn.danger-fill { background: var(--bad); border-color: var(--bad); color: #fff; }
+.mods { display: block; color: var(--accent); }
+.kds-mods { color: var(--accent); font-weight: 600; font-size: 12px; }
+.kds-allergy { background: var(--bad); color: #fff; font-weight: 700; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+@media (max-width: 600px) { .dish-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); } .dish-tap { min-height: 150px; } .pic.md { width: 56px; height: 56px; } .pic.md .emo { font-size: 34px; } }
+@media (prefers-reduced-motion: reduce) { .dish-tap { transition: none; } }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
+import { DishInfo, MenuBrowser, OptionPicker, SuggestBar, conflictsFor, normaliseAllergies, useMenuIndex } from "../menu";
 import { Card, Chips, Empty, ErrorBox, Loading, Modal, Pill, money, minutesSince, useAction, useApi, useNow } from "../ui";
 
 function tableState(o) {
@@ -113,20 +114,34 @@ function OtherOrders({ orders, onOpen, onNew, location }) {
 function OrderScreen({ id, onBack }) {
   const { can } = useAuth();
   const { data: order, error, reload } = useApi(`/pos/orders/${id}/`);
-  const menu = useApi("/pos/menu/");
-  const [cat, setCat] = useState(null);
+  const menuApi = useApi("/pos/menu/");
+  const menu = useMenuIndex(menuApi.data);
   const [dialog, setDialog] = useState(null);
+  const [picking, setPicking] = useState(null);   // dish whose options are open
+  const [info, setInfo] = useState(null);         // dish whose details are open
+  const [last, setLast] = useState(null);         // last dish added, for "suggest with"
+  const [avoidOverride, setAvoid] = useState(null);
   const [run, busy] = useAction();
 
-  const categories = useMemo(() => [...new Set((menu.data || []).map((m) => m.category))], [menu.data]);
+  const guestText = order?.guest_profile?.allergies || "";
+  const guestAvoid = useMemo(() => normaliseAllergies(guestText, menu?.allergens), [guestText, menu]);
+  const avoid = avoidOverride ?? guestAvoid;
   if (error) return <><button className="btn" type="button" onClick={onBack}>← Floor</button><ErrorBox>{error}</ErrorBox></>;
   if (!order) return <Loading />;
   const open = order.status === "open";
-  const activeCat = cat || categories[0];
   const newLines = order.lines.filter((l) => l.status === "new");
+  const inOrder = new Set(order.lines.filter((l) => l.status !== "void").map((l) => l.menu_item));
 
-  const act = async (fn, msg) => { if (await run(fn, msg)) reload(); };
-  const add = (m) => act(() => api.post(`/pos/orders/${id}/lines/`, { menu_item: m.id, qty: 1 }));
+  const act = async (fn, msg) => { const ok = await run(fn, msg); if (ok) reload(); return ok; };
+  const post = (dish, modifiers = [], qtyN = 1, note = "") =>
+    act(() => api.post(`/pos/orders/${id}/lines/`, { menu_item: dish.id, qty: qtyN, modifiers, note }), `${qtyN > 1 ? `${qtyN} × ` : ""}${dish.name} added.`);
+  // Tap: straight in unless it needs a choice, or the guest is allergic (then confirm in the picker)
+  const tap = (dish) => {
+    const needsChoice = dish.groups.some((g) => menu.groups[g]?.min > 0);
+    if (needsChoice || conflictsFor(dish.allergens, avoid).length) setPicking(dish);
+    else post(dish).then((ok) => ok && setLast(dish));
+  };
+  const customise = (dish) => setPicking(dish);
   const qty = (l, q) => act(() => api.patch(`/pos/orders/${id}/lines/${l.id}/`, { qty: q }));
   const send = () => act(() => api.post(`/pos/orders/${id}/send/`), "Sent to the kitchen.");
   const guests = (n) => act(() => api.patch(`/pos/orders/${id}/`, { guests: n }));
@@ -142,16 +157,11 @@ function OrderScreen({ id, onBack }) {
       </div>
       <div className="pos">
         <Card title="Menu">
-          {!menu.data ? <Loading /> : (
+          {menuApi.error ? <ErrorBox>{menuApi.error}</ErrorBox> : !menu ? <Loading /> : (
             <>
-              <Chips options={categories.map((c) => [c, c])} value={activeCat} onChange={setCat} />
-              <div className="menu-grid">
-                {menu.data.filter((m) => m.category === activeCat).map((m) => (
-                  <button key={m.id} type="button" className="menu-btn" disabled={!open || busy} onClick={() => add(m)}>
-                    <b>{m.name}</b><span className="muted">{money(m.price)}</span>
-                  </button>
-                ))}
-              </div>
+              <SuggestBar dish={last} menu={menu} avoid={avoid} inOrder={inOrder} onAdd={tap} />
+              <MenuBrowser menu={menu} avoid={avoid} setAvoid={setAvoid} guestAvoid={avoidOverride ? null : guestAvoid}
+                onTap={tap} onInfo={setInfo} onCustomise={customise} disabled={!open || busy} />
             </>
           )}
         </Card>
@@ -178,7 +188,9 @@ function OrderScreen({ id, onBack }) {
                 </span>
               ) : <b>{l.qty}×</b>}
               <span>
-                {l.name}{l.note && <span className="small muted"> · {l.note}</span>}
+                {l.name}
+                {l.modifiers?.length > 0 && <span className="small mods">{l.modifiers.map((m) => m.name).join(", ")}</span>}
+                {l.note && <span className="small muted"> · {l.note}</span>}
                 {l.status === "sent" && <span className="small muted"> · sent</span>}
                 {l.status === "void" && <span className="small"> · void ({l.void_reason || "removed"})</span>}
               </span>
@@ -231,6 +243,14 @@ function OrderScreen({ id, onBack }) {
           )}
         </Card>
       </div>
+      {picking && menu && (
+        <OptionPicker dish={picking} menu={menu} avoid={avoid} busy={busy} onClose={() => setPicking(null)}
+          onAdd={async (dish, mods, n, note) => { if (await post(dish, mods, n, note)) { setPicking(null); setLast(dish); } }} />
+      )}
+      {info && menu && (
+        <DishInfo dish={info} menu={menu} avoid={avoid} onClose={() => setInfo(null)}
+          onAdd={open ? (dish) => { setInfo(null); dish.groups.length ? customise(dish) : tap(dish); } : null} />
+      )}
       {dialog?.type === "pay" && <PayDialog order={order} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       {dialog && dialog.type !== "pay" && <SmallDialog dialog={dialog} order={order} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
     </>
@@ -342,7 +362,7 @@ function PayDialog({ order, onClose, onDone }) {
 function printReceipt(o) {
   const w = window.open("", "_blank", "width=380,height=640");
   if (!w) return;
-  const rows = o.lines.filter((l) => l.status !== "void").map((l) => `<tr><td>${l.qty}× ${escapeHtml(l.name)}</td><td style="text-align:right">${money(l.qty * l.unit_price)}</td></tr>`).join("");
+  const rows = o.lines.filter((l) => l.status !== "void").map((l) => `<tr><td>${l.qty}× ${escapeHtml(l.name)}${l.modifiers?.length ? `<br><small>&nbsp;&nbsp;${escapeHtml(l.modifiers.map((m) => m.name).join(", "))}</small>` : ""}</td><td style="text-align:right">${money(l.qty * l.unit_price)}</td></tr>`).join("");
   w.document.write(`<html><head><title>Receipt ${o.number}</title><style>body{font-family:monospace;font-size:13px;padding:12px}table{width:100%}td{padding:2px 0}</style></head><body>
     <h3 style="text-align:center;margin:0">${escapeHtml(o.location_name)}</h3><p style="text-align:center">Order ${o.number} · ${new Date(o.closed_at || Date.now()).toLocaleString("en-CA")}</p>
     <table>${rows}<tr><td colspan=2><hr></td></tr>

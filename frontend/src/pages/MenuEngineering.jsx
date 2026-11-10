@@ -7,7 +7,8 @@ const COLOR = { star: "var(--good)", plowhorse: "var(--warn)", puzzle: "var(--in
 
 export default function MenuEngineering() {
   const { location } = useAuth();
-  const [category, setCategory] = useState("Mains");
+  const cats = useApi("/menu-categories/");
+  const [category, setCategory] = useState("All");
   const [scope, setScope] = useState("all");
   const [days, setDays] = useState(30);
   const params = new URLSearchParams({ start: daysAgo(days), end: daysAgo(1) });
@@ -17,7 +18,7 @@ export default function MenuEngineering() {
 
   const controls = (
     <div className="row" style={{ justifyContent: "space-between" }}>
-      <Chips options={["Mains", "Starters", "Breads", "Sides", "Drinks", "Desserts", "All"].map((c) => [c, c])} value={category} onChange={setCategory} />
+      <Chips options={[["All", "All"], ...(cats.data || []).map((c) => [c.name, `${c.icon} ${c.name}`])]} value={category} onChange={setCategory} />
       <div className="row">
         <Chips options={[["all", "All outlets"], ...(location.kind === "outlet" ? [["one", location.name]] : [])]} value={scope} onChange={setScope} />
         <Chips options={[[30, "30 days"], [90, "90 days"]]} value={days} onChange={setDays} />

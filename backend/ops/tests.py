@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from accounts.models import Role, User
-from catalog.models import Item, Location, MenuItem, Vendor
+from catalog.models import Item, Location, MenuCategory, MenuItem, Vendor
 from purchasing import invoices
 from reports.performance import performance
 from sales.services import import_day
@@ -45,6 +45,7 @@ class PerformanceTests(TestCase):
         self.owner = User.objects.create_user("o", password="x" * 10, role=Role.OWNER)
         self.main = MenuItem.objects.create(pos_code="M", name="Main", category="Mains", price=Decimal("20"))
         self.drink = MenuItem.objects.create(pos_code="D", name="Drink", category="Drinks", price=Decimal("5"))
+        MenuCategory.objects.create(name="Drinks", kind=MenuCategory.Kind.DRINK)
         self.end = date(2026, 11, 8)
         for loc, now, before in ((self.a, 120, 100), (self.b, 90, 100)):
             for back in range(28):

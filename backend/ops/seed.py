@@ -14,7 +14,7 @@ LAST = ["Sharma", "Patel", "Nguyen", "Khan", "Singh", "Brown", "Wilson", "Ali", 
         "Garcia", "Kaur", "Thomas", "Rossi", "Ahmed", "Lee", "Mehta", "Clarke"]
 POSITIONS = {
     Department.SERVICE: ["Server", "Server", "Server", "Host", "Bartender", "Busser"],
-    Department.KITCHEN: ["Line cook", "Line cook", "Tandoor chef", "Prep cook", "Dishwasher", "Sous chef"],
+    Department.KITCHEN: ["Line cook", "Line cook", "Grill cook", "Prep cook", "Dishwasher", "Sous chef"],
     Department.DELIVERY: ["Packer", "Driver"],
     Department.MANAGEMENT: ["Restaurant manager", "Assistant manager"],
 }
@@ -28,31 +28,32 @@ STAFF = {
 COMPLAINT_RATE = {"SQ1": 0.25, "BRM": 0.55, "OAK": 0.18}  # per day
 # delivery orders with a wrong or missing item, per day (Brampton's packing station is the weak spot)
 WRONG_MISSING_RATE = {"SQ1": (0.18, 0.22), "BRM": (0.33, 0.45), "OAK": (0.12, 0.15)}
-WRONG = ["Got chicken tikka instead of paneer tikka", "Mild instead of spicy", "Wrong naan (butter, not garlic)", "Jeera rice instead of biryani"]
-MISSING = ["Missing garlic naan", "No raita in the bag", "Mango lassi missing", "Missing one main", "No cutlery or napkins"]
+WRONG = ["Got the Nashville instead of the Buffalo chicken", "Single instead of double patty", "Classic fries instead of Cajun",
+         "Bacon on a no-bacon burger"]
+MISSING = ["Missing truffle fries", "No dips in the bag", "Oreo shake missing", "Missing one burger", "No napkins or cutlery"]
 # platform -> location -> (food-ready accuracy %, rating)
 DELIVERY = {"uber_eats": {"SQ1": (88, 4.6), "BRM": (79, 4.3), "OAK": (91, 4.7)},
             "doordash": {"SQ1": (85, 4.5), "BRM": (81, 4.4), "OAK": (89, 4.6)}}
 COMPLAINTS = [
-    ("food", "Butter chicken was lukewarm", "Replaced the dish"),
+    ("food", "Fries were soggy by the time they arrived", "Replaced the fries"),
     ("wait", "Waited 40 minutes for mains on a Friday", "Apologised, comped dessert"),
-    ("missing", "Delivery order missing garlic naan", "Refunded through the app"),
+    ("missing", "Delivery order missing onion rings", "Refunded through the app"),
     ("service", "Server didn't come back to take a drink order", "Manager spoke to the table"),
-    ("food", "Biryani too salty", "Remade it"),
+    ("food", "Patty overcooked, no crust", "Remade it"),
     ("clean", "Sticky table at the window", "Cleaned, reminded the team"),
     ("price", "Didn't expect the automatic service charge", "Explained the policy; removed it"),
-    ("wrong", "Got paneer makhani instead of palak paneer", "Swapped and comped"),
+    ("wrong", "Got beef instead of chicken smash", "Swapped and comped"),
 ]
 EQUIPMENT = {
-    "outlet": [("Walk-in cooler", "Refrigeration"), ("Reach-in fridge", "Refrigeration"), ("Tandoor oven", "Cooking"),
+    "outlet": [("Walk-in cooler", "Refrigeration"), ("Reach-in fridge", "Refrigeration"), ("Flat-top griddle", "Cooking"),
                ("Fryer", "Cooking"), ("Dishwasher", "Dish"), ("POS terminal", "Front of house")],
     "kitchen": [("Walk-in cooler", "Refrigeration"), ("Walk-in freezer", "Refrigeration"), ("Combi oven", "Cooking"),
                 ("Tilt kettle", "Cooking"), ("Delivery van", "Vehicles")],
 }
 NOTES = [
-    ("closing", "Low on garlic naan dough tonight. Asked the kitchen for 12 kg in the morning request.", False),
+    ("closing", "Low on smash balls tonight. Asked the kitchen for 200 in the morning request.", False),
     ("opening", "Fryer 2 is slow to heat. Gave it 20 minutes before service; keep an eye on it.", False),
-    ("closing", "Party of 18 booked for Saturday 7 pm. Pre-prep 3 L extra makhani.", True),
+    ("closing", "Party of 18 booked for Saturday 7 pm. Pre-prep 3 L extra cheese sauce.", True),
     ("opening", "Health inspector visited at 2 pm. All good, report in the office.", True),
     ("closing", "Card terminal 2 dropped connection twice. Restarted it.", False),
     ("general", "New server Chloe starts Thursday. Pair her with Sofia for her first two shifts.", False),
@@ -84,7 +85,7 @@ def seed_ops(locations, manager, cook, rng):
                     cat, detail, action = rng.choice(COMPLAINTS)
                     Complaint.objects.create(location=loc, occurred_on=today - timedelta(days=back), category=cat,
                                              channel=rng.choice(["in_person", "in_person", "review", "delivery", "phone"]),
-                                             detail=detail, action_taken=action, comped=Decimal(rng.choice(["0", "0", "6.95", "12.50", "22.95"])),
+                                             detail=detail, action_taken=action, comped=Decimal(rng.choice(["0", "0", "5.45", "12.95", "17.45"])),
                                              logged_by=manager)
         if loc.code in WRONG_MISSING_RATE:
             wrong_rate, missing_rate = WRONG_MISSING_RATE[loc.code]
@@ -93,7 +94,7 @@ def seed_ops(locations, manager, cook, rng):
                     if rng.random() < rate:
                         Complaint.objects.create(location=loc, occurred_on=today - timedelta(days=back), category=cat,
                                                  channel="delivery", detail=rng.choice(texts), action_taken="Refunded through the app",
-                                                 comped=Decimal(rng.choice(["4.75", "6.95", "16.95"])), logged_by=manager)
+                                                 comped=Decimal(rng.choice(["4.95", "11.95", "15.45"])), logged_by=manager)
             monday = today - timedelta(days=today.weekday())
             for platform, by_loc in DELIVERY.items():
                 acc, rating = by_loc[loc.code]

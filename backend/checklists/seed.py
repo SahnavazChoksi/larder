@@ -21,7 +21,7 @@ Change sanitizer water every 4 hours or when dirty."""),
     "fryer": ("Fryer oil test and change", "Equipment", """Turn the fryer off and let oil cool below 50 °C before touching it.
 Test oil with a test strip. Change it if the strip reads 'change' or oil smells burnt or foams.
 Filter oil at the end of every shift. Wipe the outside of the fryer."""),
-    "floor": ("Floor and drain cleaning", "Cleaning", """Sweep under all equipment, including behind the tandoor and fryers.
+    "floor": ("Floor and drain cleaning", "Cleaning", """Sweep under all equipment, including behind the griddle and fryers.
 Mop with degreaser, then rinse.
 Lift drain covers and clear food debris. Pour hot water down each drain.
 Take a photo of the kitchen floor from the pass."""),
@@ -30,7 +30,7 @@ Count the drawer with a second person. Leave the $200 float.
 Enter the difference between counted cash and the POS report as cash over/short.
 Put the deposit in the safe in a sealed bag, labelled with the date and your name."""),
     "lockup": ("Closing lock-up", "Security", """Check washrooms, walk-in and storage rooms are empty.
-Turn off grill, tandoor, fryers and hood fans.
+Turn off griddle, fryers and hood fans.
 Lock the back door first, then the front.
 Set the alarm and photograph the keypad showing 'Armed'."""),
     "label": ("Labelling and dating food", "Food safety", """Every container gets a label: item, date made, use-by date, your initials.
@@ -55,7 +55,7 @@ TEMPLATES = [
         ("Fryer oil tested, filtered or changed", "fryer", False, None, False),
         ("Floors mopped, drains cleared", "floor", True, None, False),
         ("Cash counted, deposit in safe", "cash", False, ("Cash over/short", "$", -5, 5), True),
-        ("Grill, tandoor, fryers and hoods off", "lockup", False, None, True),
+        ("Griddle, fryers and hoods off", "lockup", False, None, True),
         ("Doors locked, alarm set", "lockup", True, None, True),
     ]),
     ("Kitchen opening", "opening", "kitchen", time(7, 30), [

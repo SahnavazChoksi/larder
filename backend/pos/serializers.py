@@ -25,8 +25,8 @@ class LineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderLine
-        fields = ["id", "menu_item", "name", "category", "qty", "unit_price", "note", "seat", "status", "status_label",
-                  "void_reason", "ticket"]
+        fields = ["id", "menu_item", "name", "category", "qty", "unit_price", "modifiers", "note", "seat", "status",
+                  "status_label", "void_reason", "ticket"]
 
 
 class TicketSerializer(serializers.ModelSerializer):
@@ -35,6 +35,7 @@ class TicketSerializer(serializers.ModelSerializer):
     channel = serializers.CharField(source="order.channel", read_only=True)
     table = serializers.CharField(source="order.table.name", read_only=True, default=None)
     customer = serializers.CharField(source="order.customer_name", read_only=True)
+    allergies = serializers.SerializerMethodField()
     guests = serializers.IntegerField(source="order.guests", read_only=True)
     server = serializers.SerializerMethodField()
     lines = serializers.SerializerMethodField()
@@ -43,15 +44,21 @@ class TicketSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Ticket
-        fields = ["id", "order", "order_number", "order_type", "channel", "table", "customer", "guests", "server", "status",
-                  "is_rush", "sent_at", "started_at", "ready_at", "served_at", "elapsed_minutes", "prep_minutes", "lines"]
+        fields = ["id", "order", "order_number", "order_type", "channel", "table", "customer", "guests", "server", "allergies",
+                  "status", "is_rush", "sent_at", "started_at", "ready_at", "served_at", "elapsed_minutes", "prep_minutes", "lines"]
 
     def get_server(self, t):
         return _name(t.order.server)
 
     def get_lines(self, t):
         return [{"id": line.id, "name": line.name, "qty": line.qty, "note": line.note, "seat": line.seat,
-                 "void": line.status == OrderLine.Status.VOID} for line in t.lines.all()]
+                 "modifiers": [m["name"] for m in line.modifiers], "void": line.status == OrderLine.Status.VOID}
+                for line in t.lines.all()]
+
+    def get_allergies(self, t):
+        """The kitchen sees the guest's allergies on every ticket for that check."""
+        g = t.order.guest
+        return g.allergies if g and g.allergies else ""
 
     def get_elapsed_minutes(self, t):
         end = t.ready_at or timezone.now()

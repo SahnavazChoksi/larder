@@ -7,7 +7,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
 
 from accounts.models import Role, User
-from catalog.models import Item, Location, MenuItem, MenuLine
+from catalog.allergens import conflicts, normalise
+from catalog.models import Item, Location, MenuItem, MenuLine, Modifier, ModifierGroup
 from guests.models import Guest
 from sales.models import SalesDay
 from stock import services as st
@@ -106,3 +107,65 @@ class POSTests(TestCase):
         r = client.post("/api/pos/integrations/uber_eats/orders/", body, format="json", HTTP_X_LARDER_SECRET="s3cret")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(Order.objects.get(external_ref="UE-1").status, "closed")
+
+
+class ModifierTests(TestCase):
+    def setUp(self):
+        self.loc = Location.objects.create(code="O1", name="Outlet", kind="outlet", tax_rate=D("0"))
+        self.patty = Item.objects.create(name="Patty", category="Meat", unit="pc", last_price=D("1"))
+        self.cheese = Item.objects.create(name="Cheese slice", category="Dairy", unit="pc", last_price=D("0.3"), allergens="Milk")
+        self.bun = Item.objects.create(name="Bun", category="Bakery", unit="pc", last_price=D("0.8"), allergens="Gluten, Milk")
+        self.burger = MenuItem.objects.create(pos_code="B1", name="Cheeseburger", category="Burgers", price=D("12.00"), contains="Mushroom")
+        MenuLine.objects.create(menu_item=self.burger, item=self.bun, qty=1)
+        MenuLine.objects.create(menu_item=self.burger, item=self.patty, qty=1)
+        self.size = ModifierGroup.objects.create(name="Size", min_choices=1, max_choices=1)
+        self.single = Modifier.objects.create(group=self.size, name="Single", is_default=True)
+        self.double = Modifier.objects.create(group=self.size, name="Double", price=D("4.50"), item=self.patty, qty=1,
+                                              extra_item=self.cheese, extra_qty=1)
+        self.extras = ModifierGroup.objects.create(name="Add-ons", max_choices=0)
+        self.egg = Modifier.objects.create(group=self.extras, name="Fried egg", price=D("2.50"), allergens="Egg")
+        self.burger.modifier_groups.set([self.size, self.extras])
+        self.server = User.objects.create_user("s", password="x" * 10, role=Role.SERVER)
+        self.server.locations.set([self.loc])
+        self.order = services.open_order(self.loc, self.server, type=Order.Type.TAKEOUT)
+
+    def test_required_choice_and_price(self):
+        with self.assertRaises(ValidationError):
+            services.add_line(self.order, self.burger, 1, self.server)
+        line = services.add_line(self.order, self.burger, 2, self.server, modifiers=[self.double.id, self.egg.id])
+        self.assertEqual(line.unit_price, D("19.00"))
+        self.assertEqual(line.display_name, "Cheeseburger (Double, Fried egg)")
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.subtotal, D("38.00"))
+
+    def test_two_sizes_rejected_and_defaults_fill(self):
+        with self.assertRaises(ValidationError):
+            services.add_line(self.order, self.burger, 1, self.server, modifiers=[self.single.id, self.double.id])
+        line = services.add_line(self.order, self.burger, 1, None, default_modifiers=True)
+        self.assertEqual([m["name"] for m in line.modifiers], ["Single"])
+
+    def test_modifier_stock_is_used_when_sold(self):
+        services.add_line(self.order, self.burger, 2, self.server, modifiers=[self.double.id])
+        services.send_to_kitchen(self.order, self.server)
+        services.take_payment(self.order, self.server, method=Payment.Method.CASH)
+        services.close_order(Order.objects.get(pk=self.order.pk), self.server)
+        self.assertEqual(st.on_hand(self.loc, self.patty), D("-4"))   # 2 burgers × (1 + 1 extra)
+        self.assertEqual(st.on_hand(self.loc, self.cheese), D("-2"))
+
+    def test_allergens_merge_and_match_guests(self):
+        self.assertEqual(sorted(self.burger.allergen_set()), ["Gluten", "Milk", "Mushroom"])
+        self.assertEqual(conflicts(self.burger.allergen_set(), "lactose intolerant, mushrooms"), ["Milk", "Mushroom"])
+        self.assertEqual(conflicts(["Nuts"], "Peanuts"), ["Nuts"])
+        self.assertEqual(normalise("shellfish"), {"Shellfish"})
+        self.assertEqual(conflicts(self.burger.allergen_set(), ""), [])
+
+    def test_pos_menu_lists_options_and_badges(self):
+        client = APIClient()
+        client.force_authenticate(self.server)
+        data = client.get("/api/pos/menu/").data
+        dish = data["items"][0]
+        self.assertEqual(dish["allergens"], ["Gluten", "Milk", "Mushroom"])
+        self.assertEqual(dish["groups"][0], self.size.id)       # required groups first
+        r = client.post(f"/api/pos/orders/{self.order.id}/lines/", {"menu_item": self.burger.id, "modifiers": [self.single.id]},
+                        format="json")
+        self.assertEqual(r.status_code, 201)

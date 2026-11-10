@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
+from .models import (
+    Item, Location, MenuCategory, MenuItem, MenuLine, Modifier, ModifierGroup, PriceHistory, RecipeLine, Vendor,
+)
 
 
 class RecipeLineInline(admin.TabularInline):
@@ -34,8 +36,29 @@ class ItemAdmin(admin.ModelAdmin):
 
 @admin.register(MenuItem)
 class MenuItemAdmin(admin.ModelAdmin):
-    list_display = ("name", "pos_code", "category", "price", "is_active")
+    list_display = ("name", "pos_code", "category", "price", "diet", "spice_level", "is_chef_pick", "is_new", "is_active")
+    list_filter = ("category", "diet", "is_chef_pick", "is_new", "is_active")
+    search_fields = ("name", "pos_code")
+    filter_horizontal = ("pairs_with", "modifier_groups")
     inlines = [MenuLineInline]
+
+
+@admin.register(MenuCategory)
+class MenuCategoryAdmin(admin.ModelAdmin):
+    list_display = ("name", "icon", "kind", "sort_order")
+    list_editable = ("icon", "kind", "sort_order")
+
+
+class ModifierInline(admin.TabularInline):
+    model = Modifier
+    fk_name = "group"
+    extra = 0
+
+
+@admin.register(ModifierGroup)
+class ModifierGroupAdmin(admin.ModelAdmin):
+    list_display = ("name", "min_choices", "max_choices", "sort_order")
+    inlines = [ModifierInline]
 
 
 @admin.register(PriceHistory)

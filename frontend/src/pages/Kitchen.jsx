@@ -44,10 +44,12 @@ export default function Kitchen() {
                 </div>
                 <div className="small muted">{t.order_number} · {t.guests} guest{t.guests > 1 ? "s" : ""}{t.server ? ` · ${t.server}` : ""}
                   {t.channel !== "larder" && <> · <Pill>{t.channel}</Pill></>} {t.is_rush && <Pill kind="bad">Rush</Pill>}</div>
+                {t.allergies && <div className="kds-allergy">⚠ ALLERGY: {t.allergies}</div>}
                 <div className="lines">
                   {t.lines.map((l) => (
                     <div key={l.id} style={l.void ? { textDecoration: "line-through", opacity: 0.5 } : {}}>
                       <b>{l.qty}×</b> {l.name}{l.seat ? <span className="small muted"> (seat {l.seat})</span> : ""}
+                      {l.modifiers?.length > 0 && <div className="kds-mods">{l.modifiers.join(" · ")}</div>}
                       {l.note && <div className="note">{l.note}</div>}
                     </div>
                   ))}

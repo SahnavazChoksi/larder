@@ -33,7 +33,7 @@ class Employee(models.Model):
     location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="employees")
     department = models.CharField(max_length=12, choices=Department.choices)
     name = models.CharField(max_length=100)
-    position = models.CharField(max_length=60, blank=True, help_text="e.g. Server, Tandoor chef")
+    position = models.CharField(max_length=60, blank=True, help_text="e.g. Server, Grill cook")
     started_on = models.DateField(null=True, blank=True)
     left_on = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)

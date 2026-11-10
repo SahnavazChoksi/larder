@@ -26,7 +26,10 @@ from ops.seed import seed_labour
 from pos import seed as pos_seed
 from pos.models import Order, Payment, Table
 from purchasing.models import InvoiceScan
-from catalog.models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
+from catalog.demo_menu import BRAND, CATEGORIES, FAVOURITES, GROUPS, LOSS, MENU, PREPS, PRICE_JUMPS, RAW, VENDORS, WASTE, cad
+from catalog.models import (
+    Item, Location, MenuCategory, MenuItem, MenuLine, Modifier, ModifierGroup, PriceHistory, RecipeLine, Vendor,
+)
 from purchasing import services as po_services
 from purchasing.models import PurchaseOrder, PurchaseOrderLine
 from sales import services as sales_services
@@ -44,72 +47,7 @@ LOCATIONS = [
     ("OAK", "Kerr Village", "Oakville", "outlet"),
     ("CK", "Central Kitchen", "Etobicoke", "kitchen"),
 ]
-VENDORS = {
-    "peel": ("Peel Fresh Meats", 1, "Daily"),
-    "gta": ("GTA Produce Co.", 1, "Mon–Sat"),
-    "dairy": ("Northfield Dairy Supply", 2, "Mon, Wed, Fri"),
-    "dry": ("Lakeshore Dry Goods", 2, "Tue, Fri"),
-    "spice": ("Spice Route Wholesale", 3, "Thu"),
-    "pack": ("Ontario Pack & Paper", 4, "Mon"),
-}
-# key, name, category, unit, price, vendor, shelf life (days), allergens
-RAW = [
-    ("chk", "Chicken thigh, boneless", "Meat", "kg", 16.00, "peel", 4, ""),
-    ("lmb", "Lamb shoulder, diced", "Meat", "kg", 26.88, "peel", 4, ""),
-    ("pnr", "Paneer", "Dairy", "kg", 19.88, "dairy", 10, "Dairy"),
-    ("yog", "Plain yogurt 3%", "Dairy", "L", 4.25, "dairy", 14, "Dairy"),
-    ("crm", "Whipping cream 35%", "Dairy", "L", 9.50, "dairy", 10, "Dairy"),
-    ("btr", "Butter, unsalted", "Dairy", "kg", 15.50, "dairy", 60, "Dairy"),
-    ("ghe", "Ghee", "Dairy", "kg", 22.38, "dairy", 180, "Dairy"),
-    ("mlk", "Milk 2%", "Dairy", "L", 2.31, "dairy", 10, "Dairy"),
-    ("ric", "Basmati rice", "Dry goods", "kg", 4.88, "dry", 365, ""),
-    ("flr", "All-purpose flour", "Dry goods", "kg", 1.56, "dry", 180, "Gluten"),
-    ("chp", "Chickpeas, dried", "Dry goods", "kg", 3.88, "dry", 365, ""),
-    ("sug", "Sugar", "Dry goods", "kg", 1.81, "dry", 365, ""),
-    ("oil", "Canola oil", "Dry goods", "L", 4.00, "dry", 270, ""),
-    ("mng", "Mango pulp", "Dry goods", "L", 6.38, "dry", 365, ""),
-    ("onn", "Yellow onion", "Produce", "kg", 2.00, "gta", 21, ""),
-    ("tom", "Roma tomato", "Produce", "kg", 3.88, "gta", 7, ""),
-    ("grl", "Garlic, peeled", "Produce", "kg", 9.25, "gta", 14, ""),
-    ("gng", "Ginger root", "Produce", "kg", 7.75, "gta", 21, ""),
-    ("cil", "Cilantro", "Produce", "kg", 13.13, "gta", 5, ""),
-    ("lem", "Lemon", "Produce", "pc", 0.65, "gta", 21, ""),
-    ("pot", "Russet potato", "Produce", "kg", 1.63, "gta", 30, ""),
-    ("spn", "Spinach", "Produce", "kg", 8.00, "gta", 5, ""),
-    ("gmr", "Garam masala", "Spices", "kg", 38.75, "spice", 365, ""),
-    ("kch", "Kashmiri chili powder", "Spices", "kg", 30.63, "spice", 365, ""),
-    ("trm", "Turmeric powder", "Spices", "kg", 23.75, "spice", 365, ""),
-    ("cmn", "Cumin seed", "Spices", "kg", 20.63, "spice", 365, ""),
-    ("box", "Takeout container 32 oz", "Packaging", "pc", 0.43, "pack", None, ""),
-]
-PREPS = [
-    ("mkh", "Makhani gravy", "L", 4, 40, [("tom", .62), ("btr", .07), ("crm", .10), ("onn", .15), ("grl", .025),
-                                          ("gng", .025), ("kch", .012), ("gmr", .006), ("sug", .012)]),
-    ("mar", "Tandoori marinade", "kg", 3, 12, [("yog", .62), ("grl", .05), ("gng", .05), ("kch", .03), ("gmr", .015),
-                                               ("trm", .01), ("lem", 2), ("oil", .05)]),
-    ("dgh", "Naan dough", "kg", 2, 30, [("flr", .6), ("yog", .1), ("mlk", .16), ("sug", .02), ("ghe", .03)]),
-    ("msl", "Onion-tomato masala", "kg", 4, 25, [("onn", .55), ("tom", .42), ("oil", .07), ("grl", .03), ("gng", .03),
-                                                 ("cmn", .01), ("trm", .005), ("gmr", .01)]),
-]
-# pos code, name, category, price, popularity, recipe
-MENU = [
-    ("BC01", "Butter Chicken", "Mains", 22.95, 1.0, [("chk", .22), ("mar", .04), ("mkh", .26), ("crm", .025), ("btr", .012), ("cil", .003), ("box", .35)]),
-    ("CT01", "Chicken Tikka", "Starters", 16.95, .55, [("chk", .24), ("mar", .08), ("lem", .5), ("oil", .012), ("onn", .04)]),
-    ("RJ01", "Lamb Rogan Josh", "Mains", 26.95, .32, [("lmb", .24), ("msl", .2), ("yog", .04), ("kch", .004), ("ghe", .018), ("box", .35)]),
-    ("PM01", "Paneer Makhani", "Mains", 20.95, .6, [("pnr", .18), ("mkh", .26), ("crm", .025), ("btr", .012), ("box", .35)]),
-    ("PP01", "Palak Paneer", "Mains", 19.95, .28, [("spn", .3), ("pnr", .14), ("msl", .09), ("crm", .025), ("box", .35)]),
-    ("CM01", "Chana Masala", "Mains", 16.95, .45, [("chp", .1), ("msl", .16), ("cil", .004), ("lem", .25), ("box", .35)]),
-    ("BN01", "Butter Naan", "Breads", 3.95, 1.6, [("dgh", .12), ("btr", .01)]),
-    ("GN01", "Garlic Naan", "Breads", 4.75, 1.2, [("dgh", .12), ("grl", .008), ("btr", .012), ("cil", .002)]),
-    ("JR01", "Jeera Rice", "Sides", 6.95, .9, [("ric", .13), ("cmn", .003), ("ghe", .01), ("box", .35)]),
-    ("CB01", "Chicken Biryani", "Mains", 23.95, .7, [("ric", .17), ("chk", .2), ("mar", .05), ("msl", .08), ("ghe", .022), ("onn", .06), ("cil", .004), ("box", .35)]),
-    ("AT01", "Aloo Tikki Chaat", "Starters", 12.95, .22, [("pot", .2), ("chp", .03), ("yog", .07), ("cil", .004), ("oil", .035)]),
-    ("ML01", "Mango Lassi", "Drinks", 6.95, .65, [("mng", .13), ("yog", .2), ("sug", .015), ("mlk", .06)]),
-    ("CH01", "Masala Chai", "Drinks", 3.95, .55, [("mlk", .18), ("sug", .012), ("gng", .003)]),
-    ("GJ01", "Gulab Jamun", "Desserts", 6.95, .38, [("mlk", .1), ("sug", .05), ("ghe", .02), ("flr", .02)]),
-    ("KF01", "Mango Kulfi", "Desserts", 7.50, .26, [("mlk", .15), ("mng", .04), ("sug", .03), ("crm", .03)]),
-]
-BRAND = "Saffron Lane"
+# The menu, its ingredients, preps and options live in catalog/demo_menu.py
 # How much each outlet grew vs last year (drives SSSG); and how often guests ask to remove service charge
 GROWTH = {"SQ1": 0.17, "BRM": 0.05, "OAK": 0.11}
 SC_REMOVED = {"SQ1": 0.09, "BRM": 0.21, "OAK": 0.07}
@@ -119,12 +57,8 @@ HISTORY_DAYS = 455  # ~15 months, so quarter-on-quarter-last-year works
 POS_DAYS = 3  # Square One's last few days run on Larder's own POS (orders, kitchen tickets, payments)
 DOW = [0.8, 0.82, 0.9, 1.0, 1.32, 1.42, 1.12]  # Mon..Sun
 OUTLET_SIZE = {"SQ1": 1.25, "BRM": 0.95, "OAK": 0.8}
-# Share of real usage that disappears without a record (over-portioning, theft, bad receiving)
-LOSS = {"chk": .085, "lmb": .06, "pnr": .11, "crm": .16, "btr": .07, "ghe": .19, "mkh": .05, "mar": .045,
-        "dgh": .07, "msl": .035, "ric": .04, "cil": .24, "spn": .15, "yog": .03, "box": .05}
+BASE = 7.4  # portions a day of a dish with popularity 1.0, at an outlet of size 1.0
 LOSS_BY_OUTLET = {"SQ1": 1.15, "BRM": 2.2, "OAK": 0.85, "CK": 0.4}
-# Late price rises so alerts have something to say
-PRICE_JUMPS = {"chk": 1.086, "crm": 1.063, "tom": 1.108}
 USERS = [
     ("owner", "Sam", "Owner", Role.OWNER, [], "LarderOwner1"),
     ("meera", "Meera", "Shah", Role.MANAGER, ["SQ1", "BRM", "OAK", "CK"], "LarderManager1"),
@@ -163,7 +97,7 @@ class Command(BaseCommand):
                       DeliveryScore, Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
                       AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
                       StockCount, Wastage, TransferLine, Transfer, ProductionBatch, ParLevel, PriceHistory, MenuLine,
-                      MenuItem, RecipeLine]:
+                      MenuItem, Modifier, ModifierGroup, MenuCategory, RecipeLine]:
             model.objects.all().delete()
         Item.objects.all().delete()
         Vendor.objects.all().delete()
@@ -191,16 +125,12 @@ class Command(BaseCommand):
                 last_price=st.q4(start_price), shelf_life_days=shelf, allergens=allergens,
             )
         self.target_price = {key: D(price) for key, _, _, _, price, *_ in RAW}
-        for key, name, unit, shelf, batch, recipe in PREPS:
+        for key, name, unit, shelf, batch, recipe, allergens in PREPS:
             prep = Item.objects.create(name=name, category="Prep", unit=unit, kind=Item.Kind.PREP,
-                                       shelf_life_days=shelf, batch_size=D(batch))
+                                       shelf_life_days=shelf, batch_size=D(batch), allergens=allergens)
             self.item[key] = prep
             RecipeLine.objects.bulk_create(RecipeLine(prep=prep, component=self.item[c], qty=D(q)) for c, q in recipe)
-        self.menu = []
-        for code, name, cat, price, pop, recipe in MENU:
-            dish = MenuItem.objects.create(pos_code=code, name=name, category=cat, price=D(price))
-            MenuLine.objects.bulk_create(MenuLine(menu_item=dish, item=self.item[c], qty=D(q)) for c, q in recipe)
-            self.menu.append((dish, pop, recipe))
+        self.build_menu()
 
         users = {}
         for username, first, last, role, locs, password in USERS:
@@ -216,7 +146,7 @@ class Command(BaseCommand):
         daily = {o.code: {} for o in outlets}
         for o in outlets:
             for _dish, pop, recipe in self.menu:
-                portions = 22 * pop * OUTLET_SIZE[o.code]
+                portions = BASE * pop * OUTLET_SIZE[o.code]
                 for key, q in recipe:
                     daily[o.code][key] = daily[o.code].get(key, 0) + portions * q
         ck_daily = {}
@@ -245,9 +175,8 @@ class Command(BaseCommand):
                 st.record(loc, item, Movement.Kind.OPENING, par * D("1.1"), self.manager, "OPENING", start - timedelta(days=1))
 
         self.usage_since_count = {loc.code: {} for loc in [*outlets, ck]}
-        item_mult = {o.code: [rng.uniform(.82, 1.18) for _ in self.menu] for o in outlets}
-        item_mult["OAK"][2] = 1.55  # Oakville loves the lamb
-        item_mult["BRM"][5] = 1.35  # Brampton sells more chana
+        item_mult = {o.code: [rng.uniform(.82, 1.18) * FAVOURITES.get(o.code, {}).get(dish.pos_code, 1)
+                              for dish, _, _ in self.menu] for o in outlets}
 
         self.stdout.write(f"  importing {HISTORY_DAYS} days of past sales…")
         self.history(outlets, start, item_mult)
@@ -278,9 +207,41 @@ class Command(BaseCommand):
         self.stdout.write(f"  checklists: 4 templates, a week of runs, {photos} demo photos")
         finish_ops(self.loc)
         seed_labour([*outlets, ck], rng, self.manager)
-        pos_seed.live_service(self.loc["SQ1"], self.server, self.guests, [d for d, _, _ in self.menu], rng)
+        pos_seed.live_service(self.loc["SQ1"], self.server, self.guests, [d for d, _, _ in self.menu], rng,
+                              stocked=set(self.pars["SQ1"]))
         self.stdout.write(f"  front of house: {Order.objects.count()} POS orders, live service running at Square One")
         self.stdout.write(f"  {Movement.objects.count():,} ledger entries over {days} days")
+
+    def build_menu(self):
+        """POS sections, option groups (size, sauce, add-ons) and the dishes with their recipes and server notes."""
+        for i, (name, icon, kind) in enumerate(CATEGORIES):
+            MenuCategory.objects.create(name=name, icon=icon, kind=kind, sort_order=i)
+        self.kinds = MenuCategory.kind_map()
+        groups, default_use = {}, {}
+        for i, (key, name, label, lo, hi, options) in enumerate(GROUPS):
+            g = ModifierGroup.objects.create(name=name, label=label, min_choices=lo, max_choices=hi, sort_order=i)
+            for j, (opt, price, item, qty, extra, extra_qty, allergens, veg, default) in enumerate(options):
+                Modifier.objects.create(group=g, name=opt, price=D(price), item=self.item.get(item), qty=D(qty),
+                                        extra_item=self.item.get(extra), extra_qty=D(extra_qty), allergens=allergens,
+                                        is_veg=veg, is_default=default, sort_order=j)
+                if default and lo:  # a required pick that usually goes this way: plan stock for it
+                    default_use[key] = [(k, q) for k, q in ((item, qty), (extra, extra_qty)) if k and q]
+            groups[key] = g
+        self.menu = []
+        by_code = {}
+        for i, (code, name, cat, inr, pop, recipe, info) in enumerate(MENU):
+            dish = MenuItem.objects.create(
+                pos_code=code, name=name, category=cat, price=cad(inr), sort_order=i, icon=info.get("icon", ""),
+                description=info.get("d", ""), diet=MenuItem.Diet.VEG if info.get("veg") else MenuItem.Diet.NON_VEG,
+                spice_level=info.get("spice", 0), is_chef_pick=info.get("chef", False), is_new=info.get("new", False),
+                contains=info.get("contains", ""), dietary_note=info.get("note", ""))
+            MenuLine.objects.bulk_create(MenuLine(menu_item=dish, item=self.item[c], qty=D(q)) for c, q in recipe)
+            dish.modifier_groups.set([groups[k] for k in info.get("groups", [])])
+            usage = recipe + [u for k in info.get("groups", []) for u in default_use.get(k, [])]
+            self.menu.append((dish, pop, usage))
+            by_code[code] = dish
+        for code, *_rest, info in MENU:
+            by_code[code].pairs_with.set([by_code[c] for c in info.get("pairs", []) if c != code])
 
     # ------------------------------------------------------------------
 
@@ -368,7 +329,7 @@ class Command(BaseCommand):
         rng = self.rng
         lines = []
         for i, (dish, pop, recipe) in enumerate(self.menu):
-            qty = round(22 * pop * OUTLET_SIZE[outlet.code] * mult[i] * DOW[day.weekday()] * (1 + 0.004 * n) * rng.uniform(.86, 1.14))
+            qty = round(BASE * pop * OUTLET_SIZE[outlet.code] * mult[i] * DOW[day.weekday()] * (1 + 0.004 * n) * rng.uniform(.86, 1.14))
             if qty <= 0:
                 continue
             lines.append((dish, qty, (dish.price * qty).quantize(D("0.01"))))
@@ -382,18 +343,18 @@ class Command(BaseCommand):
         rng = self.rng
         plan = {}
         for i, (dish, pop, recipe) in enumerate(self.menu):
-            qty = round(22 * pop * OUTLET_SIZE[outlet.code] * mult[i] * DOW[day.weekday()] * (1 + 0.004 * n) * rng.uniform(.86, 1.14))
+            qty = round(BASE * pop * OUTLET_SIZE[outlet.code] * mult[i] * DOW[day.weekday()] * (1 + 0.004 * n) * rng.uniform(.86, 1.14))
             if qty > 0:
                 plan[dish] = qty
                 for key, q in recipe:
                     self.usage_since_count[outlet.code][key] = self.usage_since_count[outlet.code].get(key, 0) + qty * q
-        pos_seed.run_service_day(outlet, day, plan, self.server, self.guests, rng)
+        pos_seed.run_service_day(outlet, day, plan, self.server, self.guests, rng, stocked=set(self.pars[outlet.code]))
 
     def day_totals(self, outlet, lines):
-        """Covers ≈ mains and biryani portions plus a share of starters; bills ≈ party of 2.3."""
+        """Covers ≈ burgers and other mains plus a share of salads; bills ≈ party of 2.3."""
         rng = self.rng
-        mains = sum(q for dish, q, _ in lines if dish.category == "Mains")
-        starters = sum(q for dish, q, _ in lines if dish.category == "Starters")
+        mains = sum(q for dish, q, _ in lines if self.kinds.get(dish.category) == "main")
+        starters = sum(q for dish, q, _ in lines if self.kinds.get(dish.category) == "starter")
         covers = round((mains * 1.08 + starters * 0.25) * rng.uniform(0.95, 1.05))
         bills = max(1, round(covers / rng.uniform(2.1, 2.5)))
         sc_bills = round(bills * rng.uniform(0.10, 0.16))  # large parties get an automatic service charge
@@ -416,7 +377,7 @@ class Command(BaseCommand):
                 season = 1 + 0.06 * (1 if day.month in (11, 12) else -1 if day.month in (1, 2) else 0)
                 lines = []
                 for i, (dish, pop, _) in enumerate(self.menu):
-                    qty = round(22 * pop * OUTLET_SIZE[o.code] * item_mult[o.code][i] * DOW[day.weekday()] * level * season
+                    qty = round(BASE * pop * OUTLET_SIZE[o.code] * item_mult[o.code][i] * DOW[day.weekday()] * level * season
                                 * rng.uniform(.86, 1.14))
                     if qty > 0:
                         lines.append((dish, qty, (dish.price * qty).quantize(D("0.01"))))
@@ -425,8 +386,7 @@ class Command(BaseCommand):
 
     def waste(self, loc, day):
         rng = self.rng
-        options = [("cil", 0.4, 1.0, "spoiled"), ("spn", 0.5, 1.5, "spoiled"), ("dgh", 1.5, 4, "overprep"),
-                   ("crm", 0.5, 1.5, "expired"), ("chk", 1, 2.5, "dropped"), ("mkh", 1, 3, "quality"), ("tom", 2, 6, "spoiled")]
+        options = WASTE
         stock = st.on_hand_map(loc)
         options = [o for o in options if stock.get(self.item[o[0]].id, 0) > o[2]]
         if not options:
@@ -456,11 +416,11 @@ class Command(BaseCommand):
         if picks:
             po_services.orders_from_suggestions(brm, [(self.item_by_id(p["item"]), D(p["suggested"])) for p in picks], self.manager)
         spice = Vendor.objects.get(name="Spice Route Wholesale")
-        po = po_services.create_order(spice, ck, [(self.item["gmr"], D(2), None), (self.item["kch"], D(2), None)],
+        po = po_services.create_order(spice, ck, [(self.item["pap"], D(2), None), (self.item["cay"], D(2), None)],
                                       self.manager, on=today - timedelta(days=4))
         po_services.send_order(po, on=today - timedelta(days=4))  # expected 1 day ago: shows as late
-        st.request_transfer(ck, brm, [(self.item["dgh"], D(12)), (self.item["mar"], D(5))], self.cook, on=today)
-        for key, qty in (("dgh", 30), ("msl", 25), ("mar", 12)):
+        st.request_transfer(ck, brm, [(self.item["bfb"], D(120)), (self.item["smc"], D(3))], self.cook, on=today)
+        for key, qty in (("bfb", 400), ("smc", 12), ("chs", 14)):
             ProductionBatch.objects.create(location=ck, item=self.item[key], qty=D(qty), planned_for=today, created_by=self.manager)
 
     _by_id = None

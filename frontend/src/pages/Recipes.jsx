@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
 import { Card, Chips, ErrorBox, Loading, Modal, NumberInput, Pill, Sparkline, fmtDate, money, pct, useAction, useApi } from "../ui";
@@ -9,8 +9,9 @@ export default function Recipes() {
   const [tab, setTab] = useState("dishes");
   return (
     <>
-      <Chips options={[["dishes", "Dishes"], ["preps", "Prep recipes"], ["ingredients", "Ingredient prices"]]} value={tab} onChange={setTab} />
+      <Chips options={[["dishes", "Dishes"], ["options", "Options & add-ons"], ["preps", "Prep recipes"], ["ingredients", "Ingredient prices"]]} value={tab} onChange={setTab} />
       {tab === "dishes" && <Dishes />}
+      {tab === "options" && <OptionGroups />}
       {tab === "preps" && <Preps />}
       {tab === "ingredients" && <Ingredients />}
     </>
@@ -32,7 +33,7 @@ function Dishes() {
             <tbody>
               {list.data.map((d) => (
                 <tr key={d.id} className={`click ${d.id === sel?.id ? "sel" : ""}`} onClick={() => setSelId(d.id)}>
-                  <td><b>{d.name}</b><div className="small muted">{d.category} · {d.pos_code}</div></td>
+                  <td><b><span aria-hidden="true">{d.icon} </span>{d.name}</b><div className="small muted">{d.category} · {d.pos_code}</div></td>
                   <td className="r">{money(d.price)}</td><td className="r">{money(d.plate_cost)}</td>
                   <td className="r"><Pill kind={d.food_cost_pct > 0.32 ? "bad" : d.food_cost_pct > TARGET ? "warn" : "good"}>{pct(d.food_cost_pct)}</Pill></td>
                   <td className="r">{money(d.margin)}</td>
@@ -42,8 +43,186 @@ function Dishes() {
           </table>
         </div>
       </Card>
-      {sel && <Editor key={sel.id} kind="dish" record={sel} onSaved={list.reload} />}
+      {sel && (
+        <div className="stack" style={{ gap: 16 }}>
+          <Editor key={sel.id} kind="dish" record={sel} onSaved={list.reload} />
+          <MenuCard key={`card${sel.id}`} dish={sel} dishes={list.data} onSaved={list.reload} />
+        </div>
+      )}
     </div>
+  );
+}
+
+const ALLERGENS = ["Milk", "Egg", "Gluten", "Peanut", "Nuts", "Soy", "Sesame", "Mustard", "Mushroom", "Fish", "Shellfish", "Alcohol"];
+
+/** What servers and online guests see: picture, description, badges, declared allergens and what to suggest. */
+function MenuCard({ dish, dishes, onSaved }) {
+  const { can } = useAuth();
+  const owner = can("owner");
+  const groups = useApi("/modifier-groups/");
+  const pick = (d) => ({ icon: d.icon, description: d.description, diet: d.diet, spice_level: d.spice_level, is_chef_pick: d.is_chef_pick,
+    is_new: d.is_new, contains: d.contains, dietary_note: d.dietary_note, pairs_with: d.pairs_with, modifier_groups: d.modifier_groups, is_active: d.is_active });
+  const [f, setF] = useState(pick(dish));
+  const [run, busy] = useAction();
+  const file = useRef(null);
+  const declared = f.contains.split(",").map((x) => x.trim()).filter(Boolean);
+  const set = (k, v) => setF({ ...f, [k]: v });
+  const toggleIn = (k, v) => set(k, f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v]);
+  const toggleAllergen = (a) => set("contains", (declared.includes(a) ? declared.filter((x) => x !== a) : [...declared, a]).join(", "));
+  const dirty = JSON.stringify(f) !== JSON.stringify(pick(dish));
+
+  async function save() {
+    if (await run(() => api.patch(`/menu-items/${dish.id}/`, f), `${dish.name} updated on the POS.`)) onSaved();
+  }
+  async function upload() {
+    const ph = file.current?.files?.[0];
+    if (!ph) return;
+    const body = new FormData();
+    body.append("photo", ph);
+    const ok = await run(() => api.post(`/menu-items/${dish.id}/photo/`, body), "Photo saved.");
+    file.current.value = "";
+    if (ok) onSaved();
+  }
+  const removePhoto = async () => { if (await run(() => api.post(`/menu-items/${dish.id}/photo/`, { remove: true }), "Photo removed.")) onSaved(); };
+
+  return (
+    <Card title="On the menu" actions={owner && <button className="btn primary" type="button" disabled={!dirty || busy} onClick={save}>Save</button>}>
+      <div className="info-head">
+        <span className="pic lg">{dish.photo ? <img src={dish.photo} alt="" /> : <span className="emo" aria-hidden="true">{f.icon || "🍽️"}</span>}</span>
+        <div className="stack">
+          <div className="row">
+            <label className="f">Icon<input value={f.icon} maxLength={8} style={{ width: 70, fontSize: 22 }} disabled={!owner} onChange={(e) => set("icon", e.target.value)} /></label>
+            <label className="f">Diet<select value={f.diet} disabled={!owner} onChange={(e) => set("diet", e.target.value)}><option value="veg">Veg</option><option value="non_veg">Non-veg</option></select></label>
+            <label className="f">Spice<select value={f.spice_level} disabled={!owner} onChange={(e) => set("spice_level", Number(e.target.value))}>{[0, 1, 2, 3].map((n) => <option key={n} value={n}>{n ? "🌶".repeat(n) : "Not spicy"}</option>)}</select></label>
+          </div>
+          <div className="row">
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={f.is_chef_pick} disabled={!owner} onChange={(e) => set("is_chef_pick", e.target.checked)} /> Chef’s pick</label>
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={f.is_new} disabled={!owner} onChange={(e) => set("is_new", e.target.checked)} /> New</label>
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={f.is_active} disabled={!owner} onChange={(e) => set("is_active", e.target.checked)} /> On the menu</label>
+          </div>
+          {owner && (
+            <div className="row">
+              <input ref={file} type="file" accept="image/*" aria-label="Dish photo" />
+              <button className="btn sm" type="button" disabled={busy} onClick={upload}>Upload photo</button>
+              {dish.photo && <button className="btn sm" type="button" disabled={busy} onClick={removePhoto}>Remove photo</button>}
+            </div>
+          )}
+        </div>
+      </div>
+      <label className="f">Description servers and guests see<textarea rows={2} maxLength={300} value={f.description} disabled={!owner} onChange={(e) => set("description", e.target.value)} /></label>
+      <label className="f">Dietary note<input value={f.dietary_note} maxLength={160} disabled={!owner} placeholder="e.g. Eggless · Gravy contains chicken stock" onChange={(e) => set("dietary_note", e.target.value)} /></label>
+      <div className="stack">
+        <b className="small">Allergens</b>
+        <span className="small muted">From the ingredients: {dish.ingredient_allergens.length ? dish.ingredient_allergens.join(", ") : "none"}. Tick anything else the dish must declare (a sauce you buy in, cross-contact…).</span>
+        <div className="row" style={{ gap: 6 }}>
+          {ALLERGENS.map((a) => {
+            const fromRecipe = dish.ingredient_allergens.includes(a);
+            return (
+              <button key={a} type="button" disabled={!owner || fromRecipe} className={`chip ${declared.includes(a) || fromRecipe ? "on" : ""}`} aria-pressed={declared.includes(a) || fromRecipe}
+                title={fromRecipe ? "Comes from an ingredient" : ""} onClick={() => toggleAllergen(a)}>{a}</button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="stack">
+        <b className="small">Options on the POS</b>
+        <div className="row" style={{ gap: 6 }}>
+          {(groups.data || []).map((g) => (
+            <button key={g.id} type="button" disabled={!owner} className={`chip ${f.modifier_groups.includes(g.id) ? "on" : ""}`} aria-pressed={f.modifier_groups.includes(g.id)} onClick={() => toggleIn("modifier_groups", g.id)}>{g.name}</button>
+          ))}
+        </div>
+      </div>
+      <div className="stack">
+        <b className="small">Servers should suggest</b>
+        <select value="" disabled={!owner} aria-label="Add a suggestion" onChange={(e) => e.target.value && toggleIn("pairs_with", Number(e.target.value))}>
+          <option value="">Add a dish…</option>
+          {dishes.filter((d) => d.id !== dish.id && !f.pairs_with.includes(d.id)).map((d) => <option key={d.id} value={d.id}>{d.category}: {d.name}</option>)}
+        </select>
+        <div className="row" style={{ gap: 6 }}>
+          {f.pairs_with.map((pid) => {
+            const d = dishes.find((x) => x.id === pid);
+            return d && <button key={pid} type="button" className="chip on" disabled={!owner} onClick={() => toggleIn("pairs_with", pid)} aria-label={`Stop suggesting ${d.name}`}>{d.icon} {d.name} ×</button>;
+          })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Size, sauce and add-on choices. Each can cost extra and use stock (a double patty uses one more patty and cheese). */
+function OptionGroups() {
+  const { can } = useAuth();
+  const owner = can("owner");
+  const list = useApi("/modifier-groups/");
+  const items = useApi("/items/");
+  const [selId, setSelId] = useState(null);
+  if (list.error) return <ErrorBox>{list.error}</ErrorBox>;
+  if (!list.data) return <Loading />;
+  const sel = list.data.find((g) => g.id === selId) || list.data[0];
+  return (
+    <div className="split">
+      <Card title="Option groups">
+        <table>
+          <thead><tr><th>Group</th><th>Rule</th><th className="r">Used on</th></tr></thead>
+          <tbody>
+            {list.data.map((g) => (
+              <tr key={g.id} className={`click ${g.id === sel?.id ? "sel" : ""}`} onClick={() => setSelId(g.id)}>
+                <td><b>{g.name}</b><div className="small muted">{g.options.filter((o) => o.is_active).map((o) => o.name).join(", ")}</div></td>
+                <td className="small">{g.min_choices ? "Required" : "Optional"}{g.max_choices === 1 ? ", one" : g.max_choices ? `, up to ${g.max_choices}` : ", any"}</td>
+                <td className="r">{g.dishes.length} dishes</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      {sel && <GroupEditor key={sel.id} group={sel} items={items.data || []} owner={owner} onSaved={list.reload} />}
+    </div>
+  );
+}
+
+function GroupEditor({ group, items, owner, onSaved }) {
+  const [g, setG] = useState({ ...group, options: group.options.filter((o) => o.is_active).map((o) => ({ ...o })) });
+  const [run, busy] = useAction();
+  const setOpt = (i, k, v) => setG({ ...g, options: g.options.map((o, j) => (j === i ? { ...o, [k]: v } : o)) });
+  async function save() {
+    const body = { name: g.name, label: g.label, min_choices: Number(g.min_choices), max_choices: Number(g.max_choices),
+      options: g.options.filter((o) => o.name.trim()).map((o) => ({ id: o.id, name: o.name.trim(), price: o.price || 0, item: o.item || null, qty: o.qty || 0,
+        extra_item: o.extra_item || null, extra_qty: o.extra_qty || 0, allergens: o.allergens, is_veg: o.is_veg, is_default: o.is_default, is_active: true })) };
+    if (await run(() => api.put(`/modifier-groups/${group.id}/`, body), `${g.name} saved.`)) onSaved();
+  }
+  return (
+    <Card title={group.name} actions={owner && <button className="btn primary" type="button" disabled={busy} onClick={save}>Save</button>}>
+      <div className="row">
+        <label className="f">Name<input value={g.name} disabled={!owner} onChange={(e) => setG({ ...g, name: e.target.value })} /></label>
+        <label className="f">Guests see<input value={g.label} disabled={!owner} onChange={(e) => setG({ ...g, label: e.target.value })} /></label>
+        <label className="f">Must pick<input type="number" min="0" value={g.min_choices} style={{ width: 60 }} disabled={!owner} onChange={(e) => setG({ ...g, min_choices: e.target.value })} /></label>
+        <label className="f">At most (0 = any)<input type="number" min="0" value={g.max_choices} style={{ width: 60 }} disabled={!owner} onChange={(e) => setG({ ...g, max_choices: e.target.value })} /></label>
+      </div>
+      <div className="small muted">On: {group.dishes.map((d) => d.name).join(", ") || "no dishes yet (pick it on a dish’s menu card)"}</div>
+      <div className="tablewrap">
+        <table>
+          <thead><tr><th>Option</th><th className="r">Extra $</th><th>Uses stock</th><th className="r">Qty</th><th>Usual</th><th /></tr></thead>
+          <tbody>
+            {g.options.map((o, i) => (
+              <tr key={o.id || `n${i}`}>
+                <td><input value={o.name} disabled={!owner} onChange={(e) => setOpt(i, "name", e.target.value)} aria-label="Option name" /></td>
+                <td className="r"><NumberInput value={o.price} step="0.25" label="Extra price" disabled={!owner} onChange={(v) => setOpt(i, "price", v)} /></td>
+                <td>
+                  <select value={o.item || ""} disabled={!owner} aria-label="Stock item" onChange={(e) => setOpt(i, "item", e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">Nothing</option>
+                    {items.map((it) => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
+                  </select>
+                </td>
+                <td className="r"><NumberInput value={o.qty} step="0.01" label="Quantity used" disabled={!owner || !o.item} onChange={(v) => setOpt(i, "qty", v)} /></td>
+                <td><input type="checkbox" checked={o.is_default} disabled={!owner} aria-label="Pre-selected" onChange={(e) => setOpt(i, "is_default", e.target.checked)} /></td>
+                <td>{owner && <button className="btn sm" type="button" onClick={() => setG({ ...g, options: g.options.filter((_, j) => j !== i) })}>Remove</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {owner && <div><button className="btn" type="button" onClick={() => setG({ ...g, options: [...g.options, { name: "", price: 0, item: null, qty: 0, extra_item: null, extra_qty: 0, allergens: "", is_veg: true, is_default: false }] })}>Add option</button></div>}
+    </Card>
   );
 }
 

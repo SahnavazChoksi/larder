@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsCook, IsManager, location_from_request, require_location
 from audit.services import log
+from catalog.menu import menu_payload
 from catalog.models import Location, MenuItem
 from stock.services import fail
 
@@ -67,8 +68,7 @@ def _out(order, code=200):
 @api_view(["GET"])
 @permission_classes([IsCook])
 def menu(request):
-    return Response([{"id": m.id, "name": m.name, "category": m.category, "price": float(m.price), "pos_code": m.pos_code}
-                     for m in MenuItem.objects.filter(is_active=True).order_by("category", "name")])
+    return Response(menu_payload(request))
 
 
 # ---------- floor plan and tables ----------
@@ -191,8 +191,12 @@ def add_line(request, pk):
     order = _order(request, pk)
     item = get_object_or_404(MenuItem, pk=request.data.get("menu_item"))
     seat = request.data.get("seat")
+    mods = request.data.get("modifiers") or []
+    if not isinstance(mods, list):
+        fail("modifiers should be a list of option ids.")
     services.add_line(order, item, _int(request.data.get("qty"), "quantity", 1), request.user,
-                      note=request.data.get("note", ""), seat=_int(seat, "seat") if seat not in (None, "") else None)
+                      note=request.data.get("note", ""), seat=_int(seat, "seat") if seat not in (None, "") else None,
+                      modifiers=[_int(m, "option") for m in mods])
     return _out(order, status.HTTP_201_CREATED)
 
 
@@ -329,7 +333,7 @@ def kds(request):
     view = request.query_params.get("view", "kitchen")
     statuses = [Ticket.Status.READY] if view == "expo" else [Ticket.Status.NEW, Ticket.Status.STARTED]
     qs = Ticket.objects.filter(location=location, status__in=statuses) \
-        .select_related("order__table", "order__server").prefetch_related("lines").order_by("-is_rush", "sent_at")
+        .select_related("order__table", "order__server", "order__guest").prefetch_related("lines").order_by("-is_rush", "sent_at")
     today = timezone.localdate()
     done = Ticket.objects.filter(location=location, ready_at__date=today)
     times = [t.prep_minutes for t in done if t.prep_minutes is not None]
@@ -382,7 +386,7 @@ def integration_order(request, platform):
 
     Header  X-Larder-Secret: <LARDER_INTEGRATION_SECRET>
     Body    {"location": "SQ1", "external_ref": "UE-123", "customer_name": "...", "note": "...",
-             "lines": [{"pos_code": "BC01", "qty": 2, "price": 22.95, "note": "extra spicy"}]}
+             "lines": [{"pos_code": "SB01", "qty": 2, "price": 13.45, "note": "no pickles"}]}
     The order goes straight to the kitchen and is marked paid on the app.
     """
     secret = settings.LARDER_INTEGRATION_SECRET
@@ -403,7 +407,8 @@ def integration_order(request, platform):
                                 note=str(d.get("note", ""))[:300])
     for x in d["lines"]:
         price = _dec(x.get("price"), "price", menu[x["pos_code"]].price)
-        services.add_line(order, menu[x["pos_code"]], _int(x.get("qty"), "quantity", 1), None, note=str(x.get("note", "")), price=price)
+        services.add_line(order, menu[x["pos_code"]], _int(x.get("qty"), "quantity", 1), None, note=str(x.get("note", "")), price=price,
+                          default_modifiers=True)
     services.send_to_kitchen(order, None)
     services.take_payment(order, None, method=Payment.Method.APP, reference=order.external_ref)
     services.close_order(_order_qs().get(pk=order.pk), None)
@@ -420,11 +425,9 @@ def public_menu(request, code):
     location = get_object_or_404(Location, code=code.upper(), kind=Location.Kind.OUTLET)
     if not location.accepts_online_orders:
         return Response({"detail": f"{location.name} isn't taking online orders right now."}, status=404)
-    dishes = MenuItem.objects.filter(is_active=True).order_by("category", "name")
     return Response({
         "location": {"code": location.code, "name": location.name, "city": location.city, "tax_rate": float(location.tax_rate)},
-        "menu": [{"id": m.id, "name": m.name, "category": m.category, "price": float(m.price), "allergens": sorted(m.allergen_set())}
-                 for m in dishes],
+        **menu_payload(request, public=True),
     })
 
 
@@ -453,7 +456,10 @@ def public_order(request, code):
         qty = _int(x.get("qty"), "quantity", 1)
         if not item or not 1 <= qty <= 20:
             fail("One of the items is unavailable or has a wrong quantity.")
-        services.add_line(order, item, qty, None, note=str(x.get("note", ""))[:120])
+        mods = x.get("modifiers") or []
+        if not isinstance(mods, list):
+            fail("modifiers should be a list of option ids.")
+        services.add_line(order, item, qty, None, note=str(x.get("note", ""))[:120], modifiers=[_int(m, "option") for m in mods])
     services.send_to_kitchen(order, None)
     order.refresh_from_db()
     log(None, "Online order received", f"{order.number} {name}, ${order.total}", location)
@@ -480,4 +486,4 @@ def public_status(request, token):
     if order.status == Order.Status.CLOSED:
         state = "picked_up"
     return Response({"number": order.number, "state": state, "total": float(order.total), "location": order.location.name,
-                     "items": [{"name": line.name, "qty": line.qty} for line in order.lines.exclude(status=OrderLine.Status.VOID)]})
+                     "items": [{"name": line.display_name, "qty": line.qty} for line in order.lines.exclude(status=OrderLine.Status.VOID)]})

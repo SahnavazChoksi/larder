@@ -1,0 +1,541 @@
+"""Demo menu: a smash-burger chain. Used by `manage.py seed_demo`.
+
+The dishes, descriptions, options and allergen notes follow a real smash-burger menu from Bengaluru that the
+project owner supplied as a reference. Prices there are in rupees; the demo runs in Ontario, so `cad()` turns them
+into Canadian prices (₹30 ≈ $1, ending in .45 or .95), which keeps the menu's relative pricing. Ingredients,
+quantities and supplier prices are our own estimates for a GTA kitchen.
+
+Allergens: each ingredient carries its own, so a dish inherits them from its recipe. `contains` on a dish adds
+what the menu itself declares (e.g. the smash sauce and roasted garlic mayo contain mushroom), so the server sees
+both.
+"""
+from decimal import ROUND_HALF_UP, Decimal
+
+
+def cad(inr) -> Decimal:
+    """Menu price: rupees ÷ 30, rounded to the nearest 50¢, then 5¢ off (13.45, 9.95…)."""
+    half = (Decimal(inr) / 30 * 2).quantize(Decimal(1), rounding=ROUND_HALF_UP) / 2
+    return max(Decimal("0.95"), half - Decimal("0.05"))
+
+
+def addon(inr) -> Decimal:
+    """Add-on price: rupees ÷ 30, to the nearest 25¢."""
+    return (Decimal(inr) / 30 * 4).quantize(Decimal(1), rounding=ROUND_HALF_UP) / 4
+
+
+def step(base_inr, option_inr) -> Decimal:
+    """Extra charge for a bigger size: the gap between the two menu prices."""
+    return cad(option_inr) - cad(base_inr)
+
+
+BRAND = "Smash Lane"
+
+VENDORS = {
+    "peel": ("Peel Fresh Meats", 1, "Daily"),
+    "gta": ("GTA Produce Co.", 1, "Mon–Sat"),
+    "dairy": ("Northfield Dairy Supply", 2, "Mon, Wed, Fri"),
+    "bake": ("Mississauga Bakehouse", 1, "Daily"),
+    "dry": ("Lakeshore Dry Goods", 2, "Tue, Fri"),
+    "spice": ("Spice Route Wholesale", 3, "Thu"),
+    "bev": ("Lakeshore Beverage Co.", 2, "Tue, Fri"),
+    "pack": ("Ontario Pack & Paper", 4, "Mon"),
+}
+
+# key, name, category, unit, price, vendor, shelf life (days), allergens
+RAW = [
+    # meat
+    ("bef", "Beef chuck, ground 80/20", "Meat", "kg", 15.50, "peel", 3, ""),
+    ("chk", "Chicken thigh, boneless", "Meat", "kg", 12.80, "peel", 4, ""),
+    ("wng", "Chicken wings", "Meat", "kg", 9.80, "peel", 4, ""),
+    ("bcn", "Streaky bacon", "Meat", "kg", 17.50, "peel", 14, ""),
+    ("brs", "Beef brisket, whole", "Meat", "kg", 19.50, "peel", 5, ""),
+    ("mrw", "Beef marrow bone, canoe cut", "Meat", "pc", 3.20, "peel", 4, ""),
+    # dairy and eggs
+    ("ams", "American cheese slices", "Dairy", "pc", 0.32, "dairy", 60, "Milk"),
+    ("chd", "Aged cheddar", "Dairy", "kg", 14.20, "dairy", 60, "Milk"),
+    ("gru", "Gruyère", "Dairy", "kg", 34.00, "dairy", 60, "Milk"),
+    ("par", "Parmesan", "Dairy", "kg", 29.00, "dairy", 90, "Milk"),
+    ("bur", "Burrata 125 g", "Dairy", "pc", 4.60, "dairy", 7, "Milk"),
+    ("pnr", "Paneer", "Dairy", "kg", 19.88, "dairy", 10, "Milk"),
+    ("mlk", "Milk 2%", "Dairy", "L", 2.31, "dairy", 10, "Milk"),
+    ("crm", "Whipping cream 35%", "Dairy", "L", 9.50, "dairy", 10, "Milk"),
+    ("btr", "Butter, unsalted", "Dairy", "kg", 15.50, "dairy", 60, "Milk"),
+    ("ccm", "Cream cheese", "Dairy", "kg", 11.00, "dairy", 30, "Milk"),
+    ("icv", "Vanilla ice cream", "Dairy", "L", 7.20, "dairy", 90, "Milk"),
+    ("egg", "Eggs, large", "Dairy", "pc", 0.38, "dairy", 28, "Egg"),
+    # bakery
+    ("bun", "Potato bun", "Bakery", "pc", 0.95, "bake", 4, "Gluten, Milk"),
+    ("brd", "Sourdough loaf", "Bakery", "pc", 4.50, "bake", 3, "Gluten"),
+    # produce
+    ("onn", "Yellow onion", "Produce", "kg", 2.00, "gta", 21, ""),
+    ("wno", "White onion", "Produce", "kg", 2.40, "gta", 21, ""),
+    ("rdo", "Red onion", "Produce", "kg", 2.60, "gta", 21, ""),
+    ("tom", "Roma tomato", "Produce", "kg", 3.88, "gta", 7, ""),
+    ("let", "Iceberg lettuce", "Produce", "pc", 2.10, "gta", 7, ""),
+    ("rom", "Romaine hearts", "Produce", "kg", 5.20, "gta", 6, ""),
+    ("cab", "Green cabbage", "Produce", "kg", 1.80, "gta", 21, ""),
+    ("jal", "Jalapeño", "Produce", "kg", 7.00, "gta", 10, ""),
+    ("grl", "Garlic, peeled", "Produce", "kg", 9.25, "gta", 14, ""),
+    ("gng", "Ginger root", "Produce", "kg", 7.75, "gta", 21, ""),
+    ("prs", "Parsley", "Produce", "kg", 12.00, "gta", 5, ""),
+    ("mnt", "Mint", "Produce", "kg", 15.00, "gta", 5, ""),
+    ("lem", "Lemon", "Produce", "pc", 0.55, "gta", 21, ""),
+    ("lim", "Lime", "Produce", "pc", 0.45, "gta", 21, ""),
+    ("wml", "Watermelon", "Produce", "kg", 1.60, "gta", 7, ""),
+    ("str", "Strawberries", "Produce", "kg", 9.00, "gta", 4, ""),
+    ("apl", "Apples", "Produce", "kg", 3.50, "gta", 30, ""),
+    ("mus", "Cremini mushrooms", "Produce", "kg", 7.80, "gta", 6, "Mushroom"),
+    ("oys", "Oyster mushrooms", "Produce", "kg", 14.50, "gta", 5, "Mushroom"),
+    ("brc", "Broccoli", "Produce", "kg", 4.40, "gta", 7, ""),
+    ("crn", "Corn on the cob", "Produce", "pc", 0.85, "gta", 5, ""),
+    ("pot", "Russet potato", "Produce", "kg", 1.63, "gta", 30, ""),
+    # dry goods and sauces
+    ("fry", "Skin-on fries, frozen", "Dry goods", "kg", 3.60, "dry", 365, ""),
+    ("rng", "Battered onion rings, frozen", "Dry goods", "kg", 5.40, "dry", 365, "Gluten"),
+    ("flr", "All-purpose flour", "Dry goods", "kg", 1.56, "dry", 180, "Gluten"),
+    ("pnk", "Panko breadcrumbs", "Dry goods", "kg", 6.20, "dry", 180, "Gluten"),
+    ("mac", "Macaroni", "Dry goods", "kg", 3.20, "dry", 365, "Gluten"),
+    ("may", "Eggless mayonnaise", "Dry goods", "kg", 6.80, "dry", 120, ""),
+    ("pck", "Dill pickle chips", "Dry goods", "kg", 6.50, "dry", 120, ""),
+    ("olv", "Marinated olives", "Dry goods", "kg", 12.00, "dry", 60, ""),
+    ("sdt", "Sun-dried tomatoes", "Dry goods", "kg", 22.00, "dry", 180, ""),
+    ("ket", "Ketchup", "Dry goods", "kg", 3.40, "dry", 180, ""),
+    ("mst", "Yellow mustard", "Dry goods", "kg", 4.00, "dry", 180, "Mustard"),
+    ("hot", "Cayenne hot sauce", "Dry goods", "L", 7.50, "dry", 365, ""),
+    ("bbq", "BBQ sauce", "Dry goods", "L", 6.20, "dry", 180, ""),
+    ("hny", "Honey", "Dry goods", "kg", 11.00, "dry", 365, ""),
+    ("sug", "Sugar", "Dry goods", "kg", 1.81, "dry", 365, ""),
+    ("oil", "Canola fryer oil", "Dry goods", "L", 4.00, "dry", 270, ""),
+    ("gch", "Gochujang", "Dry goods", "kg", 12.50, "dry", 365, "Soy, Gluten"),
+    ("pbt", "Crunchy peanut butter", "Dry goods", "kg", 9.20, "dry", 365, "Peanut"),
+    ("wal", "Walnuts", "Dry goods", "kg", 21.00, "dry", 180, "Nuts"),
+    ("pis", "Pistachios, shelled", "Dry goods", "kg", 42.00, "dry", 180, "Nuts"),
+    ("trf", "Black truffle paste", "Dry goods", "kg", 140.00, "dry", 180, "Mushroom"),
+    ("bst", "Beef stock base", "Dry goods", "L", 3.20, "dry", 365, ""),
+    ("cst", "Chicken stock base", "Dry goods", "L", 3.00, "dry", 365, ""),
+    ("cho", "Dark chocolate 70%", "Dry goods", "kg", 18.00, "dry", 365, "Milk, Soy"),
+    ("coc", "Cocoa powder", "Dry goods", "kg", 16.00, "dry", 365, ""),
+    ("oro", "Chocolate sandwich cookies", "Dry goods", "kg", 12.00, "dry", 180, "Gluten, Soy"),
+    ("bsc", "Vanilla biscuits", "Dry goods", "kg", 9.00, "dry", 180, "Gluten, Milk"),
+    ("dlc", "Dulce de leche", "Dry goods", "kg", 10.50, "dry", 180, "Milk"),
+    ("cdm", "Sweetened condensed milk", "Dry goods", "kg", 6.00, "dry", 365, "Milk"),
+    ("rum", "Dark rum", "Dry goods", "L", 32.00, "dry", 999, "Alcohol"),
+    ("pnj", "Pineapple juice", "Dry goods", "L", 3.50, "dry", 180, ""),
+    ("ccr", "Coconut cream", "Dry goods", "L", 5.20, "dry", 365, ""),
+    ("mng", "Mango purée", "Dry goods", "L", 6.38, "dry", 365, ""),
+    ("pch", "Peach purée", "Dry goods", "L", 8.00, "dry", 365, ""),
+    ("bry", "Mixed berries, frozen", "Dry goods", "kg", 8.50, "dry", 365, ""),
+    # spices
+    ("pap", "Smoked paprika", "Spices", "kg", 22.00, "spice", 365, ""),
+    ("cay", "Cayenne pepper", "Spices", "kg", 20.00, "spice", 365, ""),
+    ("cjn", "Cajun seasoning", "Spices", "kg", 18.00, "spice", 365, ""),
+    ("tog", "Togarashi", "Spices", "kg", 34.00, "spice", 365, "Sesame"),
+    # beverages
+    ("cok", "Cola / lemon-lime soda, 355 ml", "Beverages", "pc", 0.62, "bev", 270, ""),
+    ("dco", "Diet cola, 355 ml", "Beverages", "pc", 0.62, "bev", 270, ""),
+    ("wtr", "Mineral water 1 L", "Beverages", "pc", 0.95, "bev", 365, ""),
+    ("sda", "Soda water", "Beverages", "L", 1.10, "bev", 365, ""),
+    ("kmb", "Kombucha 330 ml", "Beverages", "pc", 2.40, "bev", 120, ""),
+    ("tea", "Black tea leaves", "Beverages", "kg", 30.00, "bev", 365, ""),
+    ("cof", "Espresso beans", "Beverages", "kg", 29.00, "bev", 60, ""),
+    ("mtc", "Matcha powder", "Beverages", "kg", 180.00, "bev", 180, ""),
+    ("hzs", "Hazelnut syrup", "Beverages", "L", 14.00, "bev", 365, ""),
+    ("vns", "Vanilla syrup", "Beverages", "L", 14.00, "bev", 365, ""),
+    ("csy", "Caramel syrup", "Beverages", "L", 14.00, "bev", 365, "Milk"),
+    ("ics", "Irish cream syrup", "Beverages", "L", 14.00, "bev", 365, ""),
+    ("oat", "Oat milk", "Beverages", "L", 3.80, "bev", 90, "Gluten"),
+    # packaging
+    ("box", "Burger box", "Packaging", "pc", 0.32, "pack", None, ""),
+    ("frb", "Fries boat", "Packaging", "pc", 0.12, "pack", None, ""),
+    ("tub", "Takeout bowl 24 oz", "Packaging", "pc", 0.38, "pack", None, ""),
+    ("cup", "Cup 16 oz with lid", "Packaging", "pc", 0.21, "pack", None, ""),
+]
+
+# Made at the central kitchen and sent to outlets.
+# key, name, unit, shelf life, usual batch, recipe per 1 unit (yield loss included), allergens the menu declares
+PREPS = [
+    ("bfb", "Beef smash ball 90 g", "pc", 2, 400, [("bef", .095)], ""),
+    ("ckb", "Chicken smash ball 100 g", "pc", 2, 240, [("chk", .105), ("pap", .002)], ""),
+    ("fct", "Brined chicken thigh", "pc", 2, 200, [("chk", .155), ("mlk", .05), ("cay", .002)], ""),
+    ("drg", "Seasoned flour dredge", "kg", 30, 20, [("flr", .8), ("pnk", .15), ("pap", .03), ("cay", .02)], ""),
+    ("smc", "Smash sauce", "L", 7, 12, [("may", .65), ("pck", .12), ("ket", .1), ("mst", .06), ("pap", .01), ("sug", .02)], "Mushroom"),
+    ("rgm", "Roasted garlic mayo", "L", 7, 10, [("may", .85), ("grl", .12), ("mus", .04)], ""),
+    ("aio", "Garlic aioli", "L", 4, 6, [("egg", 6), ("oil", .75), ("grl", .08), ("lem", 2)], ""),
+    ("chp", "Smoky chipotle mayo", "L", 7, 8, [("may", .9), ("pap", .03), ("cay", .01), ("lim", 2)], ""),
+    ("trm", "Truffle mayo", "L", 7, 4, [("may", .9), ("trf", .06)], ""),
+    ("csd", "Caesar dressing", "L", 4, 5, [("egg", 4), ("oil", .55), ("par", .15), ("grl", .04), ("lem", 3), ("mst", .03)], ""),
+    ("chs", "Cheddar cheese sauce", "L", 4, 14, [("mlk", .62), ("chd", .32), ("btr", .05), ("flr", .04)], ""),
+    ("cch", "Chilli cheese sauce", "L", 4, 8, [("mlk", .55), ("chd", .3), ("jal", .06), ("cay", .006), ("btr", .05), ("flr", .04)], ""),
+    ("sof", "Chilli sofrito", "kg", 5, 8, [("tom", .6), ("onn", .3), ("oil", .08), ("grl", .04), ("cay", .01), ("pap", .01)], ""),
+    ("brz", "BBQ braised brisket (8 hr)", "kg", 4, 10, [("brs", 1.7), ("bbq", .25), ("bst", .3), ("onn", .15), ("sug", .02), ("pap", .01)], ""),
+    ("jus", "Homemade beef jus", "L", 4, 8, [("bst", 1.15), ("onn", .1), ("btr", .03)], ""),
+    ("grv", "French gravy", "L", 4, 8, [("cst", 1.05), ("btr", .06), ("flr", .06), ("onn", .05)], ""),
+    ("slw", "Slaw", "kg", 3, 8, [("cab", .75), ("may", .2), ("sug", .02), ("lem", 1)], ""),
+    ("chm", "Chimichurri", "L", 5, 4, [("oil", .6), ("prs", .3), ("grl", .06), ("lem", 2), ("cay", .005)], ""),
+    ("pon", "Pickled red onions", "kg", 14, 6, [("rdo", .9), ("sug", .08)], ""),
+    ("toj", "Truffle onion jam", "kg", 7, 4, [("onn", 1.6), ("sug", .15), ("btr", .05), ("trf", .03)], ""),
+    ("tmu", "Thyme mushrooms", "kg", 3, 4, [("mus", 1.1), ("btr", .06), ("grl", .02)], ""),
+    ("bfs", "Buffalo sauce", "L", 14, 6, [("hot", .7), ("btr", .3)], ""),
+    ("chn", "Chilli honey", "L", 30, 3, [("hny", .95), ("cay", .03)], ""),
+    ("gcg", "Gochujang glaze", "L", 14, 4, [("gch", .5), ("hny", .3), ("grl", .05), ("sug", .05)], ""),
+    ("mcp", "Mac & cheese base", "kg", 3, 15, [("mac", .42), ("mlk", .45), ("chd", .26), ("btr", .04), ("flr", .03)], ""),
+    ("mpt", "Fried mac & cheese patty", "pc", 3, 60, [("mac", .06), ("chd", .04), ("mlk", .04), ("pnk", .015), ("flr", .01)], ""),
+    ("vgp", "Roasted vegetable patty", "pc", 3, 60, [("pot", .08), ("brc", .03), ("onn", .02), ("pnk", .015), ("flr", .01)], ""),
+    ("mmp", "Wild mushroom patty", "pc", 3, 60, [("mus", .09), ("oys", .02), ("pnk", .02), ("flr", .01)], ""),
+    ("bcp", "Broccoli, cheddar & walnut patty", "pc", 3, 40, [("brc", .08), ("chd", .03), ("wal", .015), ("pnk", .015)], ""),
+    ("cus", "Whipped custard", "L", 3, 4, [("mlk", .7), ("crm", .3), ("sug", .1), ("flr", .03)], ""),
+    ("mse", "Dark rum chocolate mousse", "kg", 3, 4, [("cho", .3), ("crm", .55), ("sug", .06), ("rum", .04)], ""),
+    ("acc", "Apple crumble cake", "pc", 3, 24, [("apl", .12), ("flr", .04), ("btr", .025), ("sug", .03), ("egg", .5), ("wal", .01)], ""),
+    ("hgl", "Ginger ale syrup", "L", 7, 4, [("gng", .25), ("sug", .5), ("lem", 4)], ""),
+    ("ict", "Fresh-brewed iced tea", "L", 3, 10, [("tea", .012), ("sug", .08), ("lem", 2)], ""),
+]
+
+# name, icon, kind (reports use it: mains and starters make covers, drinks and desserts make attach rates)
+CATEGORIES = [
+    ("Smash Burgers", "🍔", "main"),
+    ("Exhibition Smash", "👑", "main"),
+    ("Chicken Smash", "🐔", "main"),
+    ("Fried Chicken", "🍗", "main"),
+    ("Veggie Burgers", "🥬", "main"),
+    ("Mac & Cheese", "🧀", "main"),
+    ("Kids", "🧒", "main"),
+    ("Sides", "🍟", "side"),
+    ("Salads", "🥗", "starter"),
+    ("Shakes", "🥤", "drink"),
+    ("Drinks", "🍹", "drink"),
+    ("Coffee & Matcha", "☕", "drink"),
+    ("Desserts", "🍰", "dessert"),
+]
+
+# key, name, label for guests, min, max (0 = any), options
+# option: name, price, item, qty, extra item, extra qty, allergens, veg, default
+GROUPS = [
+    ("size_beef", "Size (beef smash)", "Size", 1, 1, [
+        ("Single", 0, None, 0, None, 0, "", False, True),
+        ("Double", step(410, 570), "bfb", 1, "ams", 1, "", False, False),
+        ("Triple", step(410, 820), "bfb", 2, "ams", 2, "", False, False)]),
+    ("size_chk", "Size (chicken smash)", "Size", 1, 1, [
+        ("Single", 0, None, 0, None, 0, "", False, True),
+        ("Double", step(320, 430), "ckb", 1, "ams", 1, "", False, False),
+        ("Triple", step(320, 600), "ckb", 2, "ams", 2, "", False, False)]),
+    ("kids_patty", "Kids patty", "Patty", 1, 1, [
+        ("Chicken", 0, "ckb", 1, None, 0, "", False, True),
+        ("Beef", step(290, 370), "bfb", 1, None, 0, "", False, False)]),
+    ("fries", "Fries seasoning", "Seasoning", 1, 1, [
+        ("Classic", 0, None, 0, None, 0, "", True, True),
+        ("Cajun", step(298, 308), "cjn", .004, None, 0, "", True, False)]),
+    ("wings", "Wing sauce", "Sauce", 1, 1, [
+        ("Blackened BBQ", 0, "bbq", .04, None, 0, "", False, True),
+        ("AOP (garlic, olive oil, chilli)", 0, "grl", .01, "cay", .002, "", False, False),
+        ("Chilli honey", 0, "chn", .04, None, 0, "", False, False)]),
+    ("caesar", "Caesar protein", "Add protein", 0, 1, [
+        ("Grilled chicken", step(338, 408), "chk", .12, None, 0, "", False, False),
+        ("Bacon", step(338, 458), "bcn", .06, None, 0, "", False, False)]),
+    ("kids_mac", "Kids mac add-on", "Add-on", 0, 1, [
+        ("Grilled chicken", addon(70), "chk", .1, None, 0, "", False, False)]),
+    ("veg_addons", "Add-ons (veg)", "Add-ons", 0, 0, [
+        ("Haystack onions", addon(40), "onn", .04, "flr", .01, "", True, False),
+        ("Grilled onions", addon(40), "onn", .05, None, 0, "", True, False),
+        ("Chilli sofrito", addon(40), "sof", .03, None, 0, "", True, False),
+        ("Cheese slice", addon(40), "ams", 1, None, 0, "", True, False),
+        ("Slaw", addon(40), "slw", .04, None, 0, "", True, False),
+        ("Jalapeños", addon(40), "jal", .02, None, 0, "", True, False),
+        ("Extra dip", addon(40), "rgm", .03, None, 0, "Mushroom", True, False),
+        ("Chimichurri", addon(40), "chm", .02, None, 0, "", True, False),
+        ("Extra veg patty", addon(135), "vgp", 1, None, 0, "", True, False),
+        ("Smashed truffle burrata", addon(135), "bur", 1, "trf", .004, "", True, False)]),
+    ("meat_addons", "Add-ons (meat)", "Add-ons", 0, 0, [
+        ("Homemade jus", addon(120), "jus", .08, None, 0, "", False, False),
+        ("Fried egg", addon(65), "egg", 1, None, 0, "", False, False),
+        ("Chicken smash patty", addon(150), "ckb", 1, None, 0, "", False, False),
+        ("Beef smash patty", addon(200), "bfb", 1, None, 0, "", False, False),
+        ("Streaky bacon", addon(150), "bcn", .04, None, 0, "", False, False),
+        ("Dino bone marrow", addon(448), "mrw", 1, "chm", .02, "Mushroom", False, False),
+        ("BBQ braised brisket", addon(298), "brz", .08, None, 0, "", False, False)]),
+    ("iced_tea", "Iced tea flavour", "Flavour", 1, 1, [
+        ("Peach", 0, "pch", .03, None, 0, "", True, True), ("Lemon", 0, "lem", .5, None, 0, "", True, False)]),
+    ("lime", "Fresh lime with", "With", 1, 1, [
+        ("Soda", 0, "sda", .25, None, 0, "", True, True), ("Water", 0, None, 0, None, 0, "", True, False)]),
+    ("kombucha", "Kombucha flavour", "Flavour", 1, 1, [
+        ("Strawberry", 0, None, 0, None, 0, "", True, True), ("Blueberry lemonade", 0, None, 0, None, 0, "", True, False)]),
+    ("soda", "Soda", "Soda", 1, 1, [
+        ("Coke", 0, None, 0, None, 0, "", True, True), ("Sprite", 0, None, 0, None, 0, "", True, False)]),
+    ("hot_iced", "Hot or iced", "Hot or iced", 1, 1, [
+        ("Hot", 0, None, 0, None, 0, "", True, True), ("Iced", 0, None, 0, None, 0, "", True, False)]),
+    ("coffee_extras", "Coffee extras", "Extras", 0, 0, [
+        ("Hazelnut syrup", addon(30), "hzs", .015, None, 0, "", True, False),
+        ("Vanilla syrup", addon(30), "vns", .015, None, 0, "", True, False),
+        ("Irish syrup", addon(30), "ics", .015, None, 0, "", True, False),
+        ("Oat milk", addon(80), "oat", .18, None, 0, "", True, False),
+        ("Extra espresso shot", addon(50), "cof", .009, None, 0, "", True, False)]),
+    ("scoop", "Ice cream flavour", "Flavour", 1, 1, [
+        ("Vanilla", 0, None, 0, None, 0, "", True, True), ("Coffee", 0, "cof", .004, None, 0, "", True, False)]),
+]
+
+BURGER = ["veg_addons", "meat_addons"]
+VEG_BURGER = ["veg_addons"]
+FRIES_ETC = ["SD01", "SD03", "SH04"]
+
+# code, name, category, price (₹), popularity, recipe, details
+# details: d = description, veg, spice (0–3), chef, new, contains, note, groups, pairs, icon
+MENU = [
+    # Classic smash
+    ("SB01", "The Cheeseburger", "Smash Burgers", 410, .95,
+     [("bun", 1), ("bfb", 1), ("ams", 2), ("pon", .015), ("pck", .015), ("smc", .025), ("box", .35)],
+     dict(d="Smash patty, double American cheese, pickled onion, pickles, smash sauce. Single, double or triple.",
+          new=True, contains="Mushroom", groups=["size_beef", *BURGER], pairs=FRIES_ETC)),
+    ("SB02", "OG Smash", "Smash Burgers", 490, .7,
+     [("bun", 1), ("bfb", 2), ("ams", 2), ("pck", .015), ("wno", .02), ("smc", .025), ("box", .35)],
+     dict(d="Double smash patties, double American cheese, pickles, white onions, smash sauce.",
+          contains="Mushroom", groups=BURGER, pairs=FRIES_ETC)),
+    ("SB03", "Oklahoma Smash", "Smash Burgers", 550, .35,
+     [("bun", 1), ("bfb", 2), ("wno", .06), ("ams", 1), ("chm", .015), ("pck", .015), ("let", .08), ("smc", .025), ("box", .35)],
+     dict(d="Double white-onion smash patties, American cheese, chimichurri, pickles, lettuce, smash sauce.",
+          contains="Mushroom", groups=BURGER, pairs=["SD02", "SD01", "DR03"])),
+    ("SB04", "Chilli Cheese Smash", "Smash Burgers", 590, .55,
+     [("bun", 1), ("bfb", 2), ("cch", .05), ("ams", 1), ("sof", .03), ("smc", .025), ("box", .35)],
+     dict(d="Double smash patties, chilli cheese sauce, American cheese, homemade chilli sofrito, smash sauce.",
+          spice=1, chef=True, contains="Mushroom", groups=BURGER, pairs=["SD01", "DR06", "SH01"])),
+    ("SB05", "Bacon Chilli Cheese Smash", "Smash Burgers", 680, .4,
+     [("bun", 1), ("bfb", 2), ("cch", .05), ("ams", 1), ("bcn", .04), ("sof", .03), ("smc", .025), ("box", .35)],
+     dict(d="Double smash patties, chilli cheese sauce, American cheese, bacon, chilli sofrito, smash sauce.",
+          spice=1, contains="Mushroom", groups=BURGER, pairs=["SD03", "DR04"])),
+    # Exhibition smash
+    ("EX01", "8 Hr Braised Brisket", "Exhibition Smash", 690, .45,
+     [("bun", 1), ("bfb", 1), ("brz", .1), ("ams", 1), ("smc", .025), ("box", .35)],
+     dict(d="Smash patty, BBQ brisket braised for 8 hours, American cheese, smash sauce.",
+          chef=True, contains="Mushroom", groups=BURGER, pairs=["SD06", "SD02", "SH04"])),
+    ("EX02", "PB & Bacon Smash", "Exhibition Smash", 590, .2,
+     [("bun", 1), ("bfb", 1), ("pbt", .025), ("ams", 1), ("bcn", .04), ("rdo", .02), ("mst", .01), ("smc", .02), ("box", .35)],
+     dict(d="Single smash patty, crunchy peanut butter, American cheese, streaky bacon, red onion, mustard paprika, smash sauce.",
+          contains="Mushroom, Nuts", groups=BURGER, pairs=["SD01", "SH01"])),
+    ("EX03", "The Dalston Dip", "Exhibition Smash", 770, .25,
+     [("bun", 1), ("bfb", 2), ("ams", 2), ("onn", .05), ("smc", .025), ("jus", .08), ("box", .35)],
+     dict(d="Double smash patties, double American cheese, grilled onions, smash sauce. Served with homemade jus.",
+          contains="Mushroom", groups=BURGER, pairs=["SD03", "DR03"])),
+    ("EX04", "The Flintstone", "Exhibition Smash", 770, .2,
+     [("bun", 1), ("bfb", 1), ("ams", 1), ("bcn", .04), ("smc", .025), ("mrw", 1), ("chm", .02), ("pon", .015), ("box", .35)],
+     dict(d="Smash patty, American cheese, streaky bacon, smash sauce. Served with a roasted dino bone marrow.",
+          contains="Mushroom", groups=BURGER, pairs=["SD03", "DR02"])),
+    ("EX05", "Alpine Truffle Smash", "Exhibition Smash", 810, .3,
+     [("bun", 1), ("bfb", 2), ("gru", .04), ("toj", .03), ("tmu", .03), ("aio", .02), ("onn", .02), ("flr", .005),
+      ("jus", .08), ("box", .35)],
+     dict(d="Double smash patties, Swiss Gruyère, truffle onion jam, thyme mushrooms, garlic aioli, crispy onions, jus.",
+          chef=True, new=True, contains="Egg, Mushroom", groups=BURGER, pairs=["SD03", "SH03"])),
+    # Chicken smash
+    ("CS01", "The Chicken Cheeseburger", "Chicken Smash", 320, .6,
+     [("bun", 1), ("ckb", 1), ("ams", 2), ("pck", .015), ("smc", .025), ("box", .35)],
+     dict(d="Chicken smash patty, double American cheese, pickles, smash sauce. Single, double or triple.",
+          new=True, contains="Mushroom", groups=["size_chk", *BURGER], pairs=FRIES_ETC)),
+    ("CS02", "Foster Chicken Smash", "Chicken Smash", 430, .3,
+     [("bun", 1), ("ckb", 2), ("ams", 1), ("chm", .015), ("pck", .015), ("let", .08), ("smc", .025), ("box", .35)],
+     dict(d="Double chicken smash patties, American cheese, chimichurri, pickles, lettuce, smash sauce.",
+          contains="Mushroom", groups=BURGER, pairs=["SD04", "DR01"])),
+    ("CS03", "Chicken Chilli Cheese Smash", "Chicken Smash", 450, .3,
+     [("bun", 1), ("ckb", 2), ("cch", .05), ("ams", 1), ("sof", .03), ("smc", .025), ("box", .35)],
+     dict(d="Double chicken smash patties, chilli cheese sauce, American cheese, chilli sofrito, smash sauce.",
+          spice=1, contains="Mushroom", groups=BURGER, pairs=["SD01", "DR06"])),
+    ("CS04", "Truffle Chicken Smash", "Chicken Smash", 610, .25,
+     [("bun", 1), ("ckb", 2), ("gru", .04), ("toj", .03), ("tmu", .03), ("aio", .02), ("onn", .02), ("flr", .005), ("box", .35)],
+     dict(d="Double chicken smash patties, Swiss Gruyère, truffle onion jam, thyme mushrooms, garlic aioli, crispy onions.",
+          chef=True, new=True, contains="Egg, Mushroom", groups=BURGER, pairs=["SD03", "SH02"])),
+    # Fried chicken
+    ("FC01", "Buffalo Chicken", "Fried Chicken", 410, .45,
+     [("bun", 1), ("fct", 1), ("drg", .04), ("oil", .03), ("bfs", .04), ("rgm", .02), ("onn", .02), ("let", .08), ("chp", .02),
+      ("box", .35)],
+     dict(d="Buffalo-sauce-dunked fried chicken, garlic mayo, grilled onions, lettuce, smoky chipotle mayo.",
+          spice=1, contains="Mushroom", groups=BURGER, pairs=["SD02", "DR04", "SH01"])),
+    ("FC02", "Nashville Chicken", "Fried Chicken", 410, .5,
+     [("bun", 1), ("fct", 1), ("drg", .04), ("oil", .05), ("cay", .004), ("sof", .03), ("pck", .015), ("aio", .02), ("box", .35)],
+     dict(d="Nashville-spiced fried chicken dipped in hot oil, homemade chilli sofrito, pickles, garlic aioli.",
+          spice=2, contains="Egg", groups=BURGER, pairs=["SD01", "DR06", "SH01"])),
+    ("FC03", "Crispy French Dip", "Fried Chicken", 430, .35,
+     [("bun", 1), ("fct", 1), ("drg", .04), ("oil", .03), ("wno", .03), ("pck", .015), ("let", .08), ("aio", .02), ("grv", .08),
+      ("box", .35)],
+     dict(d="French-dip-dunked fried chicken, white onions, pickles, lettuce, garlic aioli. Served with a French gravy dip.",
+          chef=True, contains="Egg", note="Gravy dip contains chicken stock", groups=BURGER, pairs=["SD01", "SH04"])),
+    ("FC04", "Chicken Caesar Burger", "Fried Chicken", 410, .25,
+     [("bun", 1), ("fct", 1), ("drg", .04), ("oil", .03), ("jal", .015), ("rom", .03), ("par", .008), ("csd", .025), ("box", .35)],
+     dict(d="Fried chicken, jalapeños, romaine, parmesan, Caesar dressing.",
+          contains="Egg", groups=BURGER, pairs=["SD04", "DR02"])),
+    # Veggie
+    ("VB01", "Korean Fried Paneer", "Veggie Burgers", 390, .4,
+     [("bun", 1), ("pnr", .1), ("drg", .03), ("oil", .03), ("gcg", .03), ("chm", .015), ("slw", .04), ("let", .08), ("rgm", .02),
+      ("box", .35)],
+     dict(d="Gochujang-glazed fried paneer, chimichurri, slaw, lettuce, garlic mayo.",
+          veg=True, chef=True, contains="Mushroom", groups=VEG_BURGER, pairs=["SD04", "DR07", "SH02"])),
+    ("VB02", "Magic Mushroom", "Veggie Burgers", 390, .25,
+     [("bun", 1), ("mmp", 1), ("smc", .025), ("let", .08), ("pon", .015), ("box", .35)],
+     dict(d="Multigrain-crusted wild mushroom patty, smash sauce, lettuce, pickled onions.",
+          veg=True, contains="Mushroom", groups=VEG_BURGER, pairs=["SD03", "DR03"])),
+    ("VB03", "Bellissimo", "Veggie Burgers", 390, .2,
+     [("bun", 1), ("pnr", .1), ("drg", .03), ("oil", .03), ("hot", .02), ("rgm", .02), ("onn", .03), ("let", .08), ("chp", .02),
+      ("box", .35)],
+     dict(d="Hot-sauce-dunked fried paneer, garlic mayo, grilled onions, lettuce, smoky chipotle mayo.",
+          veg=True, new=True, spice=1, contains="Mushroom", groups=VEG_BURGER, pairs=["SD01", "DR04"])),
+    ("VB04", "Louisiana", "Veggie Burgers", 390, .2,
+     [("bun", 1), ("vgp", 1), ("ams", 1), ("slw", .04), ("jal", .015), ("let", .08), ("chp", .02), ("wal", .008), ("box", .35)],
+     dict(d="Crisp-fried roasted vegetable patty, American cheese, slaw, jalapeños, lettuce, smoky chipotle mayo.",
+          veg=True, contains="Nuts", groups=VEG_BURGER, pairs=["SD02", "DR02"])),
+    ("VB05", "Cheesy Chilli Mac", "Veggie Burgers", 390, .2,
+     [("bun", 1), ("mpt", 1), ("sof", .03), ("ams", 2), ("onn", .03), ("jal", .015), ("chp", .02), ("box", .35)],
+     dict(d="Golden fried mac & cheese patty, chilli sofrito, double cheese, grilled onions, jalapeños, chipotle mayo.",
+          veg=True, spice=1, groups=VEG_BURGER, pairs=["SD04", "DR06"])),
+    ("VB06", "Broccoli & Cheddar", "Veggie Burgers", 390, .15,
+     [("bun", 1), ("bcp", 1), ("ams", 1), ("jal", .015), ("smc", .025), ("let", .08), ("box", .35)],
+     dict(d="Crumbled broccoli, cheddar & walnut patty, American cheese, jalapeños, smash sauce, lettuce.",
+          veg=True, contains="Nuts, Mushroom", groups=VEG_BURGER, pairs=["SD01", "DR01"])),
+    # Mac & cheese
+    ("MC01", "The Classic Mac", "Mac & Cheese", 410, .3, [("mcp", .32), ("chs", .06), ("tub", .35)],
+     dict(d="Tender macaroni in a saucy cheddar cheese sauce.", veg=True, pairs=["SD04", "DR03"], icon="🧀")),
+    ("MC02", "Sun-dried Tomato Mac", "Mac & Cheese", 430, .12, [("mcp", .32), ("chs", .06), ("sdt", .03), ("tub", .35)],
+     dict(d="Classic mac with sun-dried tomatoes.", veg=True, pairs=["SD02", "DR01"])),
+    ("MC03", "Grilled Chicken Mac", "Mac & Cheese", 480, .18, [("mcp", .32), ("chs", .06), ("chk", .12), ("tub", .35)],
+     dict(d="Classic mac topped with grilled chicken.", pairs=["SD04", "DR04"])),
+    ("MC04", "Bacon Crisp Mac", "Mac & Cheese", 540, .12, [("mcp", .32), ("chs", .06), ("bcn", .05), ("tub", .35)],
+     dict(d="Classic mac with crisp streaky bacon.", pairs=["SD02", "DR02"])),
+    ("MC05", "Brisket Mac", "Mac & Cheese", 615, .18, [("mcp", .32), ("chs", .06), ("brz", .1), ("tub", .35)],
+     dict(d="Classic mac with 8-hour BBQ braised brisket.", chef=True, pairs=["SD04", "DR03"])),
+    # Kids
+    ("KD01", "Kids Cheesy Mac Burger", "Kids", 270, .1, [("bun", 1), ("mpt", 1), ("ams", 1), ("smc", .02), ("box", .35)],
+     dict(d="Golden fried mac & cheese patty, American cheese, smash sauce.", veg=True, pairs=["SD01", "SH01"], icon="🍔")),
+    ("KD02", "Kids Fried Chicken Burger", "Kids", 280, .1,
+     [("bun", 1), ("fct", .6), ("drg", .03), ("oil", .02), ("smc", .02), ("box", .35)],
+     dict(d="Fried chicken, smash sauce.", pairs=["SD01", "SH04"], icon="🍗")),
+    ("KD03", "Kids Smash Burger", "Kids", 290, .12, [("bun", 1), ("ams", 1), ("smc", .02), ("box", .35)],
+     dict(d="Chicken or beef smash patty, American cheese, smash sauce.", groups=["kids_patty"], pairs=["SD01", "SH04"],
+          icon="🍔")),
+    ("KD04", "Kids Classic Mac", "Kids", 410, .06, [("mcp", .28), ("chs", .05), ("tub", .35)],
+     dict(d="Macaroni in saucy cheddar. Add grilled chicken.", veg=True, groups=["kids_mac"], pairs=["SH01"], icon="🧀")),
+    # Sides
+    ("SD01", "Fries", "Sides", 298, 1.9, [("fry", .2), ("oil", .012), ("ket", .02), ("rgm", .02), ("frb", .35)],
+     dict(d="Crispy skin-on fries with homemade ketchup and roasted garlic mayo. Classic or Cajun.",
+          veg=True, contains="Mushroom", groups=["fries"], pairs=["SH04", "DR12"])),
+    ("SD02", "Onion Rings", "Sides", 308, .45, [("rng", .18), ("oil", .012), ("rgm", .02), ("frb", .35)],
+     dict(d="Crispy battered onion rings with roasted garlic mayo.", veg=True, contains="Mushroom", pairs=["DR12"], icon="🧅")),
+    ("SD03", "Truffle Fries", "Sides", 378, .6, [("fry", .2), ("oil", .012), ("trm", .02), ("par", .008), ("prs", .002), ("frb", .35)],
+     dict(d="Fries with truffle mayo, parmesan and parsley.", veg=True, chef=True, pairs=["SH04", "DR03"])),
+    ("SD04", "Corn Ribs", "Sides", 358, .35, [("crn", 1.5), ("oil", .01), ("rgm", .02), ("lem", .25), ("pap", .001), ("frb", .35)],
+     dict(d="Fried corn ribs with roasted garlic mayo and a lemon wedge.", veg=True, chef=True, contains="Mushroom",
+          pairs=["DR04"], icon="🌽")),
+    ("SD05", "Oyster Mushroom Karaage", "Sides", 388, .2, [("oys", .14), ("flr", .03), ("oil", .02), ("tog", .003), ("trm", .02),
+                                                          ("frb", .35)],
+     dict(d="Crispy fried oyster mushroom dusted with togarashi, served with truffle mayo.", veg=True, pairs=["DR09"], icon="🍄")),
+    ("SD06", "Gravy Fries", "Sides", 378, .3, [("fry", .2), ("oil", .012), ("grv", .1), ("rgm", .02), ("frb", .35)],
+     dict(d="Crispy fries with French gravy poured on top and roasted garlic mayo.", contains="Mushroom",
+          note="Gravy contains chicken stock: not vegetarian", pairs=["DR12"])),
+    ("SD07", "Buffalo Chicken Flings", "Sides", 398, .35, [("chk", .16), ("drg", .04), ("oil", .03), ("bfs", .04), ("onn", .02),
+                                                         ("aio", .03), ("frb", .35)],
+     dict(d="Buffalo-sauce-dunked fried chicken with crispy onions and garlic aioli.", spice=1, pairs=["DR06"], icon="🍗")),
+    ("SD08", "Dino Bone Marrow", "Sides", 448, .1, [("mrw", 1), ("brd", .25), ("chm", .02), ("pon", .02)],
+     dict(d="Roasted bone marrow with toasted bread, chimichurri and pickled onions. Till stock lasts.",
+          new=True, contains="Mushroom", pairs=["DR03"], icon="🦴")),
+    ("SD09", "Chicken Wings", "Sides", 418, .5, [("wng", .3), ("oil", .02), ("frb", .35)],
+     dict(d="Crispy wings tossed in blackened BBQ, AOP (garlic, olive oil, chilli) or chilli honey.",
+          groups=["wings"], pairs=["DR12", "DR04"], icon="🍗")),
+    # Salads
+    ("SL01", "Caesar Salad", "Salads", 338, .25, [("rom", .15), ("csd", .04), ("brd", .04), ("olv", .02), ("sdt", .015),
+                                                 ("par", .01), ("tub", .35)],
+     dict(d="Romaine, homemade Caesar dressing, croutons, marinated olives, sun-dried tomatoes. Add chicken or bacon.",
+          veg=True, contains="Egg", groups=["caesar"], pairs=["DR01"])),
+    # Shakes
+    ("SH01", "French Vanilla Biscuit Shake", "Shakes", 320, .3, [("icv", .25), ("mlk", .15), ("bsc", .03), ("cup", .3)],
+     dict(d="Vanilla ice cream and crushed biscuits.", veg=True, pairs=["DS01"], icon="🥛")),
+    ("SH02", "Strawberry Cheesecake Shake", "Shakes", 320, .25,
+     [("icv", .25), ("mlk", .15), ("str", .05), ("ccm", .02), ("bsc", .015), ("cup", .3)],
+     dict(d="Strawberries, cream cheese and biscuit crumb.", veg=True, pairs=["DS01"], icon="🍓")),
+    ("SH03", "Salted Pistachio Shake", "Shakes", 320, .15, [("icv", .25), ("mlk", .15), ("pis", .02), ("cup", .3)],
+     dict(d="Salted pistachio and vanilla ice cream.", veg=True, new=True, pairs=["DS03"])),
+    ("SH04", "Oreo & Chocolate Shake", "Shakes", 320, .45, [("icv", .25), ("mlk", .15), ("oro", .04), ("cho", .01), ("cup", .3)],
+     dict(d="Chocolate sandwich cookies, dark chocolate and vanilla ice cream.", veg=True, chef=True, pairs=["DS01"])),
+    # Drinks
+    ("DR01", "Fresh Watermelon & Mint Juice", "Drinks", 230, .15, [("wml", .45), ("mnt", .003), ("sug", .01), ("cup", .3)],
+     dict(d="Fresh-pressed watermelon with mint.", veg=True, icon="🍉")),
+    ("DR02", "Fresh Iced Tea", "Drinks", 250, .2, [("ict", .35), ("cup", .3)],
+     dict(d="Brewed in house. Peach or lemon.", veg=True, groups=["iced_tea"], icon="🧋")),
+    ("DR03", "Homemade Ginger Ale", "Drinks", 250, .15, [("hgl", .05), ("sda", .3), ("lem", .25), ("cup", .3)],
+     dict(d="Fresh ginger syrup, lemon and soda.", veg=True, icon="🫚")),
+    ("DR04", "Fresh Lime", "Drinks", 200, .18, [("lim", 2), ("sug", .02), ("cup", .3)],
+     dict(d="Fresh lime with soda or still water.", veg=True, groups=["lime"], icon="🍋")),
+    ("DR05", "Sober Picante", "Drinks", 260, .08, [("lim", 1.5), ("jal", .005), ("hgl", .03), ("sda", .25), ("cup", .3)],
+     dict(d="Lime, jalapeño and ginger mocktail with a kick.", veg=True, new=True, spice=1, icon="🌶️")),
+    ("DR06", "Virgin Mojito", "Drinks", 240, .22, [("lim", 1.5), ("mnt", .005), ("sug", .02), ("sda", .3), ("cup", .3)],
+     dict(d="Lime, mint and soda.", veg=True, icon="🍹")),
+    ("DR07", "Fresh Watermelon Mojito", "Drinks", 250, .1, [("wml", .25), ("lim", 1), ("mnt", .004), ("sda", .2), ("cup", .3)],
+     dict(d="Watermelon, lime, mint and soda.", veg=True, icon="🍉")),
+    ("DR08", "Virgin Piña Colada", "Drinks", 260, .1, [("pnj", .2), ("ccr", .08), ("icv", .05), ("cup", .3)],
+     dict(d="Pineapple, coconut cream and a scoop of vanilla.", veg=True, icon="🍍")),
+    ("DR09", "Kombucha", "Drinks", 260, .08, [("kmb", 1)],
+     dict(d="Strawberry or blueberry lemonade.", veg=True, groups=["kombucha"], icon="🫙")),
+    ("DR10", "European Hot Chocolate", "Drinks", 340, .08, [("mlk", .25), ("cho", .05), ("sug", .01), ("cup", .3)],
+     dict(d="Thick, dark and rich.", veg=True, icon="☕")),
+    ("DR11", "Cold Chocolate", "Drinks", 320, .06, [("mlk", .25), ("cho", .04), ("icv", .03), ("cup", .3)],
+     dict(d="Dark chocolate shaken cold.", veg=True, icon="🥤")),
+    ("DR12", "Coke / Sprite", "Drinks", 130, .5, [("cok", 1)],
+     dict(d="Bottled.", veg=True, groups=["soda"], icon="🥤")),
+    ("DR13", "Diet Coke", "Drinks", 150, .12, [("dco", 1)], dict(d="Can.", veg=True, icon="🥤")),
+    ("DR14", "Mineral Water 1 L", "Drinks", 135, .15, [("wtr", 1)], dict(d="Still.", veg=True, icon="💧")),
+    # Coffee & matcha
+    ("CF01", "Americano", "Coffee & Matcha", 230, .12, [("cof", .018), ("cup", .3)],
+     dict(d="Hot or iced.", veg=True, groups=["hot_iced", "coffee_extras"])),
+    ("CF02", "Cappuccino", "Coffee & Matcha", 255, .1, [("cof", .018), ("mlk", .15), ("cup", .3)],
+     dict(d="Hot or iced.", veg=True, groups=["hot_iced", "coffee_extras"])),
+    ("CF03", "Café Latte", "Coffee & Matcha", 255, .1, [("cof", .018), ("mlk", .2), ("cup", .3)],
+     dict(d="Hot or iced.", veg=True, groups=["hot_iced", "coffee_extras"])),
+    ("CF04", "Flat White", "Coffee & Matcha", 255, .05, [("cof", .018), ("mlk", .12), ("cup", .3)],
+     dict(d="Double ristretto, silky milk.", veg=True, groups=["coffee_extras"])),
+    ("CF05", "Mocha", "Coffee & Matcha", 280, .05, [("cof", .018), ("mlk", .18), ("cho", .015), ("cup", .3)],
+     dict(d="Espresso, dark chocolate, milk.", veg=True, groups=["coffee_extras"])),
+    ("CF06", "Spanish Latte", "Coffee & Matcha", 280, .08, [("cof", .018), ("mlk", .18), ("cdm", .03), ("cup", .3)],
+     dict(d="Espresso, milk and condensed milk. Hot or iced.", veg=True, groups=["hot_iced", "coffee_extras"])),
+    ("CF07", "Classic Cold Coffee", "Coffee & Matcha", 265, .12, [("cof", .018), ("mlk", .2), ("icv", .03), ("sug", .01), ("cup", .3)],
+     dict(d="Blended cold coffee.", veg=True, groups=["coffee_extras"], icon="🧋")),
+    ("CF08", "Roasted Hazelnut Cold Coffee", "Coffee & Matcha", 295, .05,
+     [("cof", .018), ("mlk", .2), ("icv", .03), ("hzs", .02), ("cup", .3)], dict(d="Cold coffee with hazelnut.", veg=True, icon="🧋")),
+    ("CF09", "Vanilla Cold Coffee", "Coffee & Matcha", 295, .04,
+     [("cof", .018), ("mlk", .2), ("icv", .03), ("vns", .02), ("cup", .3)], dict(d="Cold coffee with vanilla.", veg=True, icon="🧋")),
+    ("CF10", "Caramel Cold Coffee", "Coffee & Matcha", 295, .05,
+     [("cof", .018), ("mlk", .2), ("icv", .03), ("csy", .02), ("cup", .3)], dict(d="Cold coffee with caramel.", veg=True, icon="🧋")),
+    ("CF11", "Mocha Cold Coffee", "Coffee & Matcha", 295, .04,
+     [("cof", .018), ("mlk", .2), ("icv", .03), ("cho", .015), ("cup", .3)], dict(d="Cold coffee with dark chocolate.", veg=True,
+                                                                                  icon="🧋")),
+    ("CF12", "Irish Cold Coffee", "Coffee & Matcha", 295, .03,
+     [("cof", .018), ("mlk", .2), ("icv", .03), ("ics", .02), ("cup", .3)], dict(d="Cold coffee with Irish syrup (no alcohol).",
+                                                                                 veg=True, icon="🧋")),
+    ("CF13", "Classic Matcha", "Coffee & Matcha", 350, .06, [("mtc", .004), ("mlk", .2), ("cup", .3)],
+     dict(d="Ceremonial matcha and milk. Hot or iced.", veg=True, groups=["hot_iced"], icon="🍵")),
+    ("CF14", "Roasted Hazelnut Matcha", "Coffee & Matcha", 350, .03, [("mtc", .004), ("mlk", .2), ("hzs", .02), ("cup", .3)],
+     dict(d="Matcha latte with roasted hazelnut.", veg=True, groups=["hot_iced"], icon="🍵")),
+    ("CF15", "Vanilla Matcha Latte", "Coffee & Matcha", 350, .03, [("mtc", .004), ("mlk", .2), ("vns", .02), ("cup", .3)],
+     dict(d="Matcha latte with vanilla.", veg=True, icon="🍵")),
+    ("CF16", "Iced Mango Matcha", "Coffee & Matcha", 350, .03, [("mtc", .004), ("mlk", .15), ("mng", .05), ("cup", .3)],
+     dict(d="Mango purée layered with iced matcha.", veg=True, icon="🥭")),
+    ("CF17", "Iced Summer Berry Matcha", "Coffee & Matcha", 350, .03, [("mtc", .004), ("mlk", .15), ("bry", .04), ("cup", .3)],
+     dict(d="Berries layered with iced matcha.", veg=True, icon="🫐")),
+    # Desserts
+    ("DS01", "Deep-Fried Oreos", "Desserts", 370, .5, [("oro", .08), ("flr", .03), ("mlk", .04), ("oil", .02), ("cus", .05),
+                                                       ("dlc", .02)],
+     dict(d="Battered and fried, with whipped custard and dulce de leche.", veg=True, chef=True, note="Eggless", icon="🍪",
+          pairs=["CF03"])),
+    ("DS02", "Dark Rum Chocolate Mousse", "Desserts", 390, .3, [("mse", .12), ("cus", .03), ("coc", .002)],
+     dict(d="Chocolate mousse with dark rum, whipped custard and cocoa dust.", veg=True, note="Eggless · contains alcohol",
+          icon="🍫", pairs=["CF01"])),
+    ("DS03", "Apple Crumble Cake", "Desserts", 370, .3, [("acc", 1), ("crm", .03), ("icv", .06)],
+     dict(d="Warm apple crumble cake with whipped cream and vanilla ice cream.", veg=True, contains="Egg, Nuts", icon="🥧",
+          pairs=["CF03"])),
+    ("DS04", "Ice-Cream Double Scoop", "Desserts", 138, .4, [("icv", .15)],
+     dict(d="Vanilla or coffee.", veg=True, groups=["scoop"], icon="🍨", pairs=["DS01"])),
+]
+
+# Popular dishes at each outlet (multiplies demand): Oakville loves brisket, Brampton goes veggie
+FAVOURITES = {"OAK": {"EX01": 1.5, "MC05": 1.4}, "BRM": {"VB01": 1.45, "VB05": 1.3}, "SQ1": {"SB04": 1.25}}
+
+# Share of real usage that disappears without a record (over-portioning, theft, bad receiving)
+LOSS = {"bfb": .06, "ckb": .05, "fct": .07, "chs": .08, "cch": .07, "ams": .09, "bun": .04, "fry": .07, "crm": .12,
+        "btr": .07, "chd": .1, "bcn": .08, "brz": .06, "prs": .22, "rom": .15, "let": .12, "icv": .06, "smc": .05, "box": .05}
+# Late price rises so alerts have something to say
+PRICE_JUMPS = {"bef": 1.09, "ams": 1.063, "tom": 1.108}
+# What goes in the bin, and why: key, low, high, reason
+WASTE = [("prs", 0.3, 0.8, "spoiled"), ("rom", 0.5, 1.5, "spoiled"), ("bun", 6, 20, "expired"), ("crm", 0.5, 1.5, "expired"),
+         ("bfb", 4, 12, "dropped"), ("chs", 1, 3, "quality"), ("tom", 2, 6, "spoiled"), ("let", 1, 3, "spoiled"),
+         ("fry", 1, 3, "overprep")]
