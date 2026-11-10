@@ -65,10 +65,16 @@ function Profile({ id, onSaved }) {
       </div>
       <p className="small" style={{ margin: 0 }}>{g.phone} · {g.email || "no email"}{g.birthday && ` · birthday ${fmtDate(g.birthday)}`}</p>
       {g.notes && <p className="small muted" style={{ margin: 0 }}>{g.notes}</p>}
-      <h3>Recent orders</h3>
-      {!g.history.length ? <Empty>No orders yet.</Empty> : (
-        <table><tbody>{g.history.map((o) => <tr key={o.id}><td>{fmtDate(o.date)}</td><td>{o.location}</td><td>{o.number}</td><td className="r">{money(o.total)}</td></tr>)}</tbody></table>
+      {g.favourites.length > 0 && (
+        <>
+          <h3>Usually orders</h3>
+          <div className="row">
+            {g.favourites.map((f) => <Pill key={f.name} kind="accent">{f.name} · {f.qty}×</Pill>)}
+          </div>
+        </>
       )}
+      <h3>Order history {g.order_count > g.history.length && <span className="small muted">(latest {g.history.length} of {g.order_count})</span>}</h3>
+      {!g.history.length ? <Empty>No orders yet.</Empty> : g.history.map((o) => <OrderCard key={o.id} o={o} />)}
       <h3>Points</h3>
       {!g.points_history.length ? <Empty>No points activity.</Empty> : (
         <table><tbody>{g.points_history.map((p, i) => <tr key={i}><td className="small">{fmtDateTime(p.at)}</td><td>{p.reason}</td><td className="r">{p.points > 0 ? "+" : ""}{p.points}</td></tr>)}</tbody></table>
@@ -82,6 +88,33 @@ function Profile({ id, onSaved }) {
       )}
       {editing && <GuestForm initial={g} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); onSaved(); }} />}
     </Card>
+  );
+}
+
+function OrderCard({ o }) {
+  const [open, setOpen] = useState(false);
+  const count = o.items.reduce((s, i) => s + i.qty, 0);
+  return (
+    <div className="order-card">
+      <button type="button" className="order-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span><b>{fmtDate(o.date)}</b> · {o.location}{o.table ? ` · table ${o.table}` : ` · ${o.type}`}</span>
+        <span className="row" style={{ flexWrap: "nowrap" }}><span className="muted small">{o.number}</span><b>{money(o.total)}</b><span aria-hidden="true">{open ? "▴" : "▾"}</span></span>
+      </button>
+      <div className="small muted">{o.items.slice(0, 3).map((i) => `${i.qty}× ${i.name}`).join(", ")}{o.items.length > 3 ? ` +${o.items.length - 3} more` : ""}</div>
+      {open && (
+        <table className="small" style={{ marginTop: 6 }}>
+          <tbody>
+            {o.items.map((i, k) => (
+              <tr key={k}><td>{i.qty}× {i.name}{i.note && <span className="muted"> · {i.note}</span>}</td><td className="r">{money(i.qty * i.price)}</td></tr>
+            ))}
+            {o.discount > 0 && <tr><td>Discount <span className="muted">{o.discount_reason}</span></td><td className="r">−{money(o.discount)}</td></tr>}
+            <tr><td><b>Total incl. tax</b></td><td className="r"><b>{money(o.total)}</b></td></tr>
+            {o.tips > 0 && <tr><td>Tip</td><td className="r">{money(o.tips)}</td></tr>}
+            <tr><td colSpan={2} className="muted">{o.guests} guest{o.guests > 1 ? "s" : ""}{o.server ? ` · served by ${o.server}` : ""} · {count} items</td></tr>
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

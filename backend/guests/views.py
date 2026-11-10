@@ -64,11 +64,26 @@ def guest_detail(request, pk):
             g.joined_on = timezone.localdate()
             g.save(update_fields=["joined_on"])
             log(request.user, "Enrolled guest in loyalty", g.name)
-    orders = Order.objects.filter(guest=g, status=Order.Status.CLOSED).select_related("location").order_by("-closed_at")[:15]
+    from django.db.models import Count, Sum
+
+    from pos.models import OrderLine
+
+    closed = Order.objects.filter(guest=g, status=Order.Status.CLOSED)
+    orders = closed.select_related("location", "table", "server").prefetch_related("lines").order_by("-closed_at")[:15]
+    favourites = (OrderLine.objects.filter(order__in=closed).exclude(status=OrderLine.Status.VOID)
+                  .values("name").order_by().annotate(qty=Sum("qty"), visits=Count("order", distinct=True)).order_by("-qty")[:6])
     return Response({
         **GuestSerializer(g).data,
-        "history": [{"id": o.id, "number": o.number, "date": o.business_date, "location": o.location.name,
-                     "total": float(o.total)} for o in orders],
+        "history": [{
+            "id": o.id, "number": o.number, "date": o.business_date, "location": o.location.name,
+            "type": o.get_type_display(), "table": o.table.name if o.table else None, "guests": o.guests,
+            "server": o.server.display_name if o.server else None, "total": float(o.total), "tips": float(o.tips()),
+            "discount": float(o.discount), "discount_reason": o.discount_reason,
+            "items": [{"name": line.name, "qty": line.qty, "note": line.note, "price": float(line.unit_price)}
+                      for line in o.lines.all() if line.status != OrderLine.Status.VOID],
+        } for o in orders],
+        "order_count": closed.count(),
+        "favourites": [{"name": f["name"], "qty": f["qty"], "visits": f["visits"]} for f in favourites],
         "points_history": [{"points": p.points, "reason": p.reason, "at": p.created_at} for p in g.points_history.all()[:20]],
         "reward_points": settings.LOYALTY_REWARD_POINTS, "reward_value": float(settings.LOYALTY_REWARD_VALUE),
     })
