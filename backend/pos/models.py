@@ -85,6 +85,8 @@ class Order(models.Model):
     business_date = models.DateField(db_index=True)
     void_reason = models.CharField(max_length=120, blank=True)
     public_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    client_id = models.CharField(max_length=64, null=True, blank=True, unique=True,
+                                 help_text="Set when a tablet took the order offline; makes uploading it twice harmless")
 
     class Meta:
         ordering = ["-opened_at"]

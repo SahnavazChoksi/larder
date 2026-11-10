@@ -201,6 +201,31 @@ python manage.py seed_demo
 | `LARDER_INTEGRATION_SECRET` | empty | Shared secret delivery-app adapters send in `X-Larder-Secret` |
 | `LARDER_MESSAGE_PROVIDER` | `log` | Guest texts (waitlist). `log` records them only |
 
+## When the server is down (offline mode)
+
+The POS keeps working on a tablet that loses the connection to Larder (internet down, server restarting):
+
+- **Every tablet keeps a copy** of its outlet's menu, options, allergens, tables and tax rules. It refreshes
+  every 10 minutes while the POS is open, so open the POS on each tablet at least once a day.
+- **When the server stops answering**, a red bar appears and the POS switches to offline mode. Servers seat
+  tables, take orders (same picture menu, options and allergy warnings), print a **kitchen ticket** for each
+  send (the kitchen screen can't see offline orders), and record payments taken on the card terminal or in cash.
+- **Orders wait in an outbox** in the tablet's browser storage, numbered by tablet (e.g. `K7QX-3`).
+- **When the server answers again**, the outbox uploads by itself. Each order is booked with its real times:
+  sales, covers, stock usage, payments and tips all land on the right day. Orders still open become normal open
+  checks. Each order carries an ID, so a retried upload can't book it twice. Kitchen tickets from paper are kept
+  out of the prep-time statistics.
+- **What needs the server**: signing in, discounts, voiding items already sent, loyalty points, removing the
+  service charge, and every page outside the POS.
+- If an upload is refused (say a table was deleted, or payments add up to more than the bill), the order stays
+  on the tablet marked *Needs attention* under **POS → Taken offline**, with the reason and a **Try again** button.
+
+To reopen the app on a tablet with no connection at all (not just keep an open page working), serve the built
+app instead of the dev server: `npm run build` then `npm run preview` (http://localhost:4173). The build
+includes a service worker that saves the app on the first visit. `npm run dev` doesn't, on purpose.
+
+Endpoints: `pos/ping/` (no login), `pos/offline-kit/?location=`, `pos/offline-orders/` (POST, idempotent).
+
 ## Payments
 
 Larder takes payments through **providers**: small plug-ins in `backend/pos/payments.py`.

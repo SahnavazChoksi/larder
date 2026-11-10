@@ -4,6 +4,9 @@ from . import views
 
 urlpatterns = [
     path("menu/", views.menu, name="pos-menu"),
+    path("ping/", views.ping, name="pos-ping"),
+    path("offline-kit/", views.offline_kit, name="pos-offline-kit"),
+    path("offline-orders/", views.offline_orders, name="pos-offline-orders"),
     path("floor/", views.floor, name="pos-floor"),
     path("tables/", views.Tables.as_view(), name="pos-tables"),
     path("tables/<int:pk>/", views.table_detail, name="pos-table"),

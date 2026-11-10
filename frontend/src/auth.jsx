@@ -1,9 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import api, { getTokens, setTokens } from "./api";
+import { isOfflineError } from "./offline";
 
 const AuthContext = createContext(null);
 const RANK = { cook: 0, server: 0, manager: 1, owner: 2 };
 const LOCATION_KEY = "larder.location";
+const ME_KEY = "larder.me"; // last known profile, so a signed-in tablet still opens when the server is down
+
+function cachedMe() {
+  try {
+    return JSON.parse(localStorage.getItem(ME_KEY));
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -13,13 +23,18 @@ export function AuthProvider({ children }) {
   const loadMe = useCallback(async () => {
     const { data } = await api.get("/auth/me/");
     setUser(data);
+    localStorage.setItem(ME_KEY, JSON.stringify(data));
     return data;
   }, []);
 
   useEffect(() => {
     if (!getTokens()) return;
     loadMe()
-      .catch(() => setTokens(null))
+      .catch((err) => {
+        const me = cachedMe();
+        if (isOfflineError(err) && me) setUser(me);
+        else setTokens(null);
+      })
       .finally(() => setLoading(false));
   }, [loadMe]);
 
@@ -40,6 +55,7 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     setTokens(null);
+    localStorage.removeItem(ME_KEY);
     setUser(null);
   }, []);
 

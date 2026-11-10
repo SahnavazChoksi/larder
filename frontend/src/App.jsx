@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "./api";
+import * as off from "./offline";
 import { useAuth } from "./auth";
 import Audit from "./pages/Audit";
 import Checklists from "./pages/Checklists";
@@ -107,6 +108,7 @@ function Layout() {
         ))}
       </nav>
       <main className="main">
+        <ConnectionBar />
         <header className="top">
           <h1>{title}</h1>
           <div className="row">
@@ -144,6 +146,20 @@ function Layout() {
       </main>
     </div>
   );
+}
+
+/** Red while the server can't be reached; amber while offline orders wait to upload or need a look. */
+function ConnectionBar() {
+  const { online, syncing, outbox } = off.useOffline();
+  useEffect(() => off.startMonitor(), []);
+  const waiting = outbox.filter((o) => o.sync.status === "pending").length;
+  const problems = outbox.filter((o) => o.sync.status === "error").length;
+  if (!online) {
+    return <div className="conn bad" role="status">Offline: can’t reach the server. The POS keeps working and saves orders on this tablet{waiting ? ` (${waiting} waiting)` : ""}. Other pages need the connection.</div>;
+  }
+  if (syncing) return <div className="conn warn" role="status">Back online. Uploading {waiting} offline order{waiting === 1 ? "" : "s"}…</div>;
+  if (problems) return <div className="conn warn" role="status">{problems} offline order{problems === 1 ? "" : "s"} couldn’t be uploaded. See POS → Taken offline.</div>;
+  return null;
 }
 
 function Bell() {

@@ -248,3 +248,9 @@ textarea { width: 100%; resize: vertical; }
 .kds-allergy { background: var(--bad); color: #fff; font-weight: 700; border-radius: 6px; padding: 4px 8px; font-size: 12px; }
 @media (max-width: 600px) { .dish-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); } .dish-tap { min-height: 150px; } .pic.md { width: 56px; height: 56px; } .pic.md .emo { font-size: 34px; } }
 @media (prefers-reduced-motion: reduce) { .dish-tap { transition: none; } }
+
+/* ---------- offline mode ---------- */
+.conn { padding: 8px 24px; font-weight: 600; font-size: 13px; }
+.conn.bad { background: var(--bad); color: #fff; }
+.conn.warn { background: var(--warn-soft); color: var(--warn); }
+.warn-box { background: var(--warn-soft); color: var(--ink); border-left: 4px solid var(--warn); }

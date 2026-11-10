@@ -169,3 +169,56 @@ class ModifierTests(TestCase):
         r = client.post(f"/api/pos/orders/{self.order.id}/lines/", {"menu_item": self.burger.id, "modifiers": [self.single.id]},
                         format="json")
         self.assertEqual(r.status_code, 201)
+
+
+class OfflineSyncTests(TestCase):
+    def setUp(self):
+        self.loc = Location.objects.create(code="O1", name="Outlet", kind="outlet", tax_rate=D("0.13"),
+                                           service_charge_rate=D("0.15"), service_charge_party=6)
+        self.table = Table.objects.create(location=self.loc, name="T1", seats=4)
+        self.rice = Item.objects.create(name="Rice", category="Dry", unit="kg", last_price=D("4"))
+        self.dish = MenuItem.objects.create(pos_code="R1", name="Rice bowl", category="Mains", price=D("10.00"))
+        MenuLine.objects.create(menu_item=self.dish, item=self.rice, qty=D("0.2"))
+        self.server = User.objects.create_user("s", password="x" * 10, role=Role.SERVER)
+        self.server.locations.set([self.loc])
+        self.client = APIClient()
+        self.client.force_authenticate(self.server)
+
+    def _body(self, **extra):
+        opened = timezone.now() - timedelta(minutes=50)
+        order = {"client_id": "tab1-0001-abcd", "type": "dine_in", "table": self.table.id, "guests": 2,
+                 "opened_at": opened.isoformat(), "closed_at": (opened + timedelta(minutes=45)).isoformat(),
+                 "lines": [{"menu_item": self.dish.id, "qty": 2, "price": 10, "sent_at": (opened + timedelta(minutes=5)).isoformat()}],
+                 "payments": [{"method": "card", "amount": 22.60, "tip": 3}]}
+        order.update(extra)
+        return {"location": self.loc.id, "device": "Front tablet", "orders": [order]}
+
+    def test_paid_offline_order_is_booked_once(self):
+        r = self.client.post("/api/pos/offline-orders/", self._body(), format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data["results"][0]["status"], "closed")
+        o = Order.objects.get(client_id="tab1-0001-abcd")
+        self.assertEqual((o.status, o.total, o.tips()), ("closed", D("22.60"), D("3.00")))
+        self.assertEqual(o.tickets.get().status, "served")
+        self.assertEqual(st.on_hand(self.loc, self.rice), D("-0.4"))
+        day = SalesDay.objects.get(location=self.loc)
+        self.assertEqual((day.covers, day.bills, day.tickets), (2, 1, 0))   # paper tickets stay out of prep times
+        again = self.client.post("/api/pos/offline-orders/", self._body(), format="json")
+        self.assertEqual(again.data["results"][0]["status"], "duplicate")
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_short_payment_stays_open_and_bad_order_saves_nothing(self):
+        r = self.client.post("/api/pos/offline-orders/", self._body(payments=[{"method": "cash", "amount": 15}]), format="json")
+        self.assertEqual(r.data["results"][0]["status"], "open")
+        self.assertEqual(r.data["results"][0]["balance"], 7.6)
+        bad = self._body(client_id="tab1-0002-abcd", payments=[{"method": "card", "amount": 99}])
+        r = self.client.post("/api/pos/offline-orders/", bad, format="json")
+        self.assertEqual(r.data["results"][0]["status"], "error")
+        self.assertFalse(Order.objects.filter(client_id="tab1-0002-abcd").exists())
+
+    def test_kit_and_ping(self):
+        self.assertTrue(APIClient().get("/api/pos/ping/").data["ok"])
+        kit = self.client.get(f"/api/pos/offline-kit/?location={self.loc.id}").data
+        self.assertEqual(kit["location"]["tax_rate"], 0.13)
+        self.assertEqual(kit["tables"][0]["name"], "T1")
+        self.assertEqual(kit["menu"]["items"][0]["name"], "Rice bowl")

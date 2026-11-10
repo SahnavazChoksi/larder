@@ -1,18 +1,32 @@
 import hmac
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
-from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+    throttle_classes,
+)
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from accounts.permissions import IsCook, IsManager, location_from_request, require_location
+from accounts.permissions import (
+    IsCook,
+    IsManager,
+    location_from_request,
+    require_location,
+)
 from audit.services import log
 from catalog.menu import menu_payload
 from catalog.models import Location, MenuItem
@@ -21,7 +35,13 @@ from stock.services import fail
 from . import payments as providers
 from . import services
 from .models import Order, OrderLine, Payment, Table, Ticket
-from .serializers import OrderBriefSerializer, OrderSerializer, PaymentSerializer, TableSerializer, TicketSerializer
+from .serializers import (
+    OrderBriefSerializer,
+    OrderSerializer,
+    PaymentSerializer,
+    TableSerializer,
+    TicketSerializer,
+)
 
 OPEN = Order.Status.OPEN
 
@@ -69,6 +89,124 @@ def _out(order, code=200):
 @permission_classes([IsCook])
 def menu(request):
     return Response(menu_payload(request))
+
+
+# ---------- offline mode ----------
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def ping(request):
+    """Tablets poll this to know whether the server is reachable."""
+    return Response({"ok": True, "time": timezone.now()})
+
+
+@api_view(["GET"])
+@permission_classes([IsCook])
+def offline_kit(request):
+    """Everything a tablet needs to keep taking orders if the connection drops: menu, tables, tax rules."""
+    location = location_from_request(request)
+    if location.kind != Location.Kind.OUTLET:
+        fail("Only outlets take orders.")
+    return Response({
+        "location": {"id": location.id, "code": location.code, "name": location.name, "tax_rate": float(location.tax_rate),
+                     "service_charge_rate": float(location.service_charge_rate),
+                     "service_charge_party": location.service_charge_party},
+        "tables": TableSerializer(Table.objects.filter(location=location, is_active=True), many=True).data,
+        "menu": menu_payload(request),
+        "saved_at": timezone.now(),
+    })
+
+
+def _when(value, field):
+    at = parse_datetime(str(value or ""))
+    if not at:
+        fail(f"{field} is missing or not a date and time.")
+    if timezone.is_naive(at):
+        at = timezone.make_aware(at)
+    now = timezone.now()
+    if at > now + timedelta(minutes=10) or at < now - timedelta(days=7):
+        fail(f"{field} is out of range: offline orders must be from the last 7 days.")
+    return at
+
+
+def _offline_order(raw) -> dict:
+    """Validate one order from a tablet's outbox."""
+    if not isinstance(raw, dict):
+        fail("Each order must be an object.")
+    client_id = str(raw.get("client_id", "")).strip()
+    if not 8 <= len(client_id) <= 64:
+        fail("client_id is missing.")
+    if raw.get("type") not in (Order.Type.DINE_IN, Order.Type.TAKEOUT):
+        fail("Offline orders are dine-in or takeout.")
+    lines = raw.get("lines") or []
+    if not isinstance(lines, list) or not 1 <= len(lines) <= 60:
+        fail("An offline order needs between 1 and 60 items.")
+    d = {"client_id": client_id, "type": raw["type"], "table": raw.get("table") or None,
+         "guests": max(1, min(_int(raw.get("guests"), "guests", 1), 40)),
+         "customer_name": str(raw.get("customer_name", ""))[:100],
+         "opened_at": _when(raw.get("opened_at"), "opened_at"),
+         "closed_at": _when(raw["closed_at"], "closed_at") if raw.get("closed_at") else None, "lines": [], "payments": []}
+    for x in lines:
+        if not isinstance(x, dict):
+            fail("Each item must be an object.")
+        mods = x.get("modifiers") or []
+        if not isinstance(mods, list):
+            fail("modifiers should be a list of option ids.")
+        d["lines"].append({"menu_item": _int(x.get("menu_item"), "dish"), "qty": _int(x.get("qty"), "quantity", 1),
+                           "price": _dec(x.get("price"), "price"), "modifiers": [_int(m, "option") for m in mods],
+                           "note": str(x.get("note", ""))[:120],
+                           "sent_at": _when(x["sent_at"], "sent_at") if x.get("sent_at") else None})
+        if d["lines"][-1]["price"] < 0:
+            fail("A price can't be negative.")
+    for p in raw.get("payments") or []:
+        if not isinstance(p, dict):
+            fail("Each payment must be an object.")
+        if p.get("method") not in (Payment.Method.CASH, Payment.Method.CARD, Payment.Method.GIFT, Payment.Method.OTHER):
+            fail("Unknown payment method.")
+        d["payments"].append({"method": p["method"], "amount": _dec(p.get("amount"), "amount"), "tip": _dec(p.get("tip"), "tip", Decimal(0)),
+                              "cash_tendered": _dec(p["cash_tendered"], "cash given") if p.get("cash_tendered") not in (None, "") else None,
+                              "reference": str(p.get("reference", ""))[:60]})
+    return d
+
+
+@api_view(["POST"])
+@permission_classes([IsCook])
+def offline_orders(request):
+    """Upload orders a tablet took while offline. Each one is booked on its own; uploading twice is harmless.
+
+    Body: {"location": id, "device": "Front tablet", "orders": [{client_id, type, table, guests, customer_name,
+    opened_at, closed_at, lines: [{menu_item, qty, price, modifiers, note, sent_at}],
+    payments: [{method, amount, tip, cash_tendered, reference}]}]}
+    """
+    location = location_from_request(request)
+    orders = request.data.get("orders")
+    if not isinstance(orders, list) or not 1 <= len(orders) <= 50:
+        fail("Send between 1 and 50 orders at a time.")
+    device = str(request.data.get("device", ""))[:40]
+    results = []
+    for raw in orders:
+        cid = str(raw.get("client_id", "")) if isinstance(raw, dict) else ""
+        try:
+            with transaction.atomic():
+                order, outcome = services.import_offline_order(location, request.user, _offline_order(raw), device)
+        except ValidationError as exc:
+            results.append({"client_id": cid, "status": "error", "message": " ".join(_messages(exc.detail))})
+            continue
+        if outcome != "duplicate":
+            log(request.user, "Synced offline order", f"{order.number}, ${order.total}"
+                + ("" if outcome == "closed" else ", left open for a manager"), location)
+        results.append({"client_id": cid, "status": outcome, "order": order.id, "number": order.number,
+                        "total": float(order.total), "balance": float(order.balance())})
+    return Response({"results": results})
+
+
+def _messages(detail):
+    if isinstance(detail, dict):
+        return [m for v in detail.values() for m in _messages(v)]
+    if isinstance(detail, list):
+        return [m for v in detail for m in _messages(v)]
+    return [str(detail)]
 
 
 # ---------- floor plan and tables ----------

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { isOfflineError, reportNetworkError } from "./offline";
 
 const TOKENS_KEY = "larder.tokens";
 
@@ -28,6 +29,7 @@ let refreshing = null;
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (isOfflineError(error) && !error.config?.url?.includes("/public/")) reportNetworkError();
     const original = error.config;
     const tokens = getTokens();
     const isAuthCall = original?.url?.includes("/auth/token");
@@ -58,7 +60,7 @@ function flatten(value) {
 
 /** Turn a DRF error response into one readable sentence. */
 export function errorText(err) {
-  if (!err?.response) return "Can't reach the server. Is Django running on port 8000?";
+  if (isOfflineError(err)) return "Can't reach the server right now. The POS keeps working offline; other pages need the connection.";
   const data = err.response.data;
   if (!data || typeof data === "string") return `The server returned an error (${err.response.status}).`;
   if (data.detail) return flatten(data.detail);

@@ -32,11 +32,12 @@ def _require_open(order: Order):
 
 @transaction.atomic
 def open_order(location, user, *, type=Order.Type.DINE_IN, table=None, guests=1, guest=None, customer_name="",
-               customer_phone="", channel="larder", external_ref="", note="", pickup_at=None, at=None) -> Order:
+               customer_phone="", channel="larder", external_ref="", note="", pickup_at=None, at=None,
+               check_table=True) -> Order:
     if table is not None:
         if table.location_id != location.id:
             fail("That table belongs to another location.")
-        busy = Order.objects.filter(table=table, status=Order.Status.OPEN).first()
+        busy = Order.objects.filter(table=table, status=Order.Status.OPEN).first() if check_table else None
         if busy:
             fail(f"{table.name} already has an open check ({busy.number}).")
     if type == Order.Type.DINE_IN and table is None:
@@ -81,9 +82,9 @@ def resolve_modifiers(menu_item, ids, *, defaults=False) -> list[Modifier]:
 
 
 def add_line(order: Order, menu_item, qty: int, user, note="", seat=None, price=None, modifiers=None,
-             default_modifiers=False) -> OrderLine:
+             default_modifiers=False, allow_inactive=False) -> OrderLine:
     _require_open(order)
-    if not menu_item.is_active:
+    if not menu_item.is_active and not allow_inactive:
         fail(f"{menu_item.name} is off the menu.")
     if not 1 <= qty <= 99:
         fail("Quantity must be between 1 and 99.")
@@ -366,3 +367,81 @@ def void_order(order: Order, reason: str, user):
     order.status, order.void_reason, order.closed_at, order.closed_by = Order.Status.VOID, reason.strip(), timezone.now(), user
     order.save(update_fields=["status", "void_reason", "closed_at", "closed_by"])
     order.recalc()
+
+
+# ---------- orders taken while the server was unreachable ----------
+
+ROUNDING = Decimal("0.50")  # what we let a tablet's own total differ from ours before asking a manager
+CENTS = Decimal("0.05")
+
+
+@transaction.atomic
+def import_offline_order(location, user, d: dict, device: str = "") -> tuple[Order, str]:
+    """Book an order a tablet took offline, with its real times. Returns (order, outcome).
+
+    outcome: "duplicate" (already uploaded), "closed" (paid in full and booked) or "open" (still running, or the
+    payments don't cover our total, so a manager should look). Raises ValidationError if it can't be booked;
+    nothing is saved then and the tablet keeps it.
+    """
+    from catalog.models import MenuItem
+
+    from .models import Table
+
+    existing = Order.objects.filter(client_id=d["client_id"]).first()
+    if existing:
+        return existing, "duplicate"
+    table = None
+    if d.get("table"):
+        table = Table.objects.filter(pk=d["table"], location=location).first()
+        if not table:
+            fail("That table no longer exists.")
+    closed_at = d.get("closed_at")
+    order = open_order(location, user, type=d["type"], table=table, guests=d.get("guests", 1),
+                       customer_name=d.get("customer_name", ""), note=f"Taken offline{f' on {device}' if device else ''}",
+                       at=d["opened_at"], check_table=not closed_at)
+    order.client_id = d["client_id"]
+    order.save(update_fields=["client_id"])
+
+    dishes = {m.id: m for m in MenuItem.objects.filter(id__in=[x["menu_item"] for x in d["lines"]])}
+    sends: dict = {}
+    for x in d["lines"]:
+        dish = dishes.get(x["menu_item"])
+        if not dish:
+            fail("A dish on this order has been deleted.")
+        line = add_line(order, dish, x["qty"], user, note=x.get("note", ""), price=x["price"], modifiers=x.get("modifiers"),
+                        allow_inactive=True)
+        sent = x.get("sent_at") or closed_at
+        if sent:
+            sends.setdefault(sent, []).append(line.id)
+    # The kitchen cooked from paper tickets, so these tickets are history: served, and kept out of prep-time stats.
+    for at in sorted(sends):
+        ticket = Ticket.objects.create(order=order, location=location, sent_at=at, sent_by=user,
+                                       status=Ticket.Status.SERVED, served_at=closed_at or at)
+        OrderLine.objects.filter(id__in=sends[at]).update(status=OrderLine.Status.SENT, ticket=ticket)
+    if sends:
+        order.first_sent_at = min(sends)
+        order.save(update_fields=["first_sent_at"])
+
+    order.refresh_from_db()
+    order.recalc()
+    payments = d.get("payments", [])
+    for n, p in enumerate(payments):
+        balance = order.balance()
+        amount, tip = money(p["amount"]), money(p.get("tip", 0))
+        short = balance - amount
+        if closed_at and n == len(payments) - 1 and ZERO < short <= CENTS:
+            # the tablet rounded a cent differently: it's the same money, so count it toward the bill, not the tip
+            amount, tip = balance, max(ZERO, tip - short)
+        if amount > balance:
+            if amount - balance > ROUNDING:
+                fail(f"Payments add up to more than the bill (${amount} against ${balance} left).")
+            amount = balance
+        if amount <= 0:
+            continue
+        take_payment(order, user, provider="manual", method=p["method"], amount=amount, tip=tip,
+                     cash_tendered=p.get("cash_tendered"), reference=p.get("reference", ""))
+    order.refresh_from_db()
+    if closed_at and order.balance() <= 0:
+        close_order(order, user, at=closed_at)
+        return order, "closed"
+    return order, "open"

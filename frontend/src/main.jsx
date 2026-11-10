@@ -17,3 +17,9 @@ createRoot(document.getElementById("root")).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+// Lets a tablet reopen the app with no connection. Only in production builds: in `npm run dev` the files
+// change on every save and caching them would get in the way.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}

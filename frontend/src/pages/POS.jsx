@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../api";
 import { useAuth } from "../auth";
+import * as off from "../offline";
+import OfflinePOS, { OfflineOrders } from "./OfflinePOS";
 import { DishInfo, MenuBrowser, OptionPicker, SuggestBar, conflictsFor, normaliseAllergies, useMenuIndex } from "../menu";
 import { Card, Chips, Empty, ErrorBox, Loading, Modal, Pill, money, minutesSince, useAction, useApi, useNow } from "../ui";
 
@@ -14,7 +16,25 @@ function tableState(o) {
 const STATE_LABEL = { free: "Free", seated: "Seated, not ordered", cooking: "Waiting on kitchen", ready: "Food ready", eating: "Eating" };
 
 export default function POS() {
+  const { location } = useAuth();
+  const { online } = off.useOffline();
+  const outlet = location.kind === "outlet";
+  // Keep a fresh copy of the menu and tables on this tablet, for when the connection drops
+  useEffect(() => {
+    if (!outlet || !online) return undefined;
+    const save = () => api.get(`/pos/offline-kit/?location=${location.id}`).then((r) => off.saveKit(location.id, r.data)).catch(() => {});
+    save();
+    const t = setInterval(save, 10 * 60000);
+    return () => clearInterval(t);
+  }, [outlet, online, location.id]);
+  if (outlet && !online) return <OfflinePOS location={location} />;
+  return <OnlinePOS />;
+}
+
+function OnlinePOS() {
   const { location, can } = useAuth();
+  const { outbox } = off.useOffline();
+  const offlineHere = outbox.filter((o) => o.location === location.id).length;
   const floor = useApi(location.kind === "outlet" ? `/pos/floor/?location=${location.id}` : null, 15000);
   const [orderId, setOrderId] = useState(null);
   const [seating, setSeating] = useState(null);
@@ -30,7 +50,7 @@ export default function POS() {
   return (
     <>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <Chips options={[["floor", "Floor plan"], ["other", `Takeout & online (${orders.length})`], ...(can("manager") ? [["tables", "Edit tables"]] : [])]} value={view} onChange={setView} />
+        <Chips options={[["floor", "Floor plan"], ["other", `Takeout & online (${orders.length})`], ...(offlineHere ? [["offline", `Taken offline (${offlineHere})`]] : []), ...(can("manager") ? [["tables", "Edit tables"]] : [])]} value={view} onChange={setView} />
         <div className="legend">{Object.entries(STATE_LABEL).map(([k, l]) => <span key={k}><i className={`tbl ${k}`} style={{ display: "inline-block", width: 12, height: 12, padding: 0 }} />{l}</span>)}</div>
       </div>
       {view === "floor" && (
@@ -51,6 +71,7 @@ export default function POS() {
         </div>
       )}
       {view === "other" && <OtherOrders orders={orders} onOpen={setOrderId} onNew={(id) => setOrderId(id)} location={location} />}
+      {view === "offline" && <Card title="Orders this tablet took offline"><OfflineOrders location={location} /></Card>}
       {view === "tables" && <TableEditor location={location} tables={tables} onSaved={floor.reload} />}
       {seating && <SeatDialog table={seating} location={location} onClose={() => setSeating(null)} onDone={(id) => { setSeating(null); setOrderId(id); }} />}
     </>

@@ -12,4 +12,12 @@ export default defineConfig({
       "/media": "http://127.0.0.1:8000",
     },
   },
+  // `npm run build && npm run preview` serves the built app (with offline support) on :4173
+  preview: {
+    port: 4173,
+    proxy: {
+      "/api": "http://127.0.0.1:8000",
+      "/media": "http://127.0.0.1:8000",
+    },
+  },
 });
