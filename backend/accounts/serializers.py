@@ -8,7 +8,7 @@ from .models import User
 class LocationBriefSerializer(serializers.ModelSerializer):
     class Meta:
         model = Location
-        fields = ["id", "code", "name", "city", "kind"]
+        fields = ["id", "code", "name", "city", "kind", "brand"]
 
 
 class MeSerializer(serializers.ModelSerializer):

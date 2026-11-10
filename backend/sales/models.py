@@ -10,6 +10,11 @@ class SalesDay(models.Model):
     location = models.ForeignKey(Location, on_delete=models.PROTECT, related_name="sales_days")
     business_date = models.DateField()
     source = models.CharField(max_length=40, default="CSV import")
+    covers = models.PositiveIntegerField(default=0, help_text="Guests served")
+    bills = models.PositiveIntegerField(default=0, help_text="Bills / checks closed")
+    sc_bills = models.PositiveIntegerField(default=0, help_text="Bills that had a service charge")
+    sc_removed = models.PositiveIntegerField(default=0, help_text="Bills where the service charge was taken off")
+    is_history = models.BooleanField(default=False, help_text="Imported past sales: used for trends, no stock usage booked")
     imported_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
     imported_at = models.DateTimeField(auto_now=True)
 

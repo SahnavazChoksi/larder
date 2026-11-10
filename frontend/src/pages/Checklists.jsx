@@ -4,6 +4,7 @@ import api from "../api";
 import { useAuth } from "../auth";
 import { Card, Chips, Empty, ErrorBox, Loading, Modal, Pill, Tile, daysAgo, fmtDate, fmtDateTime, useAction, useApi } from "../ui";
 import ChecklistSetup from "./ChecklistSetup";
+import Readings from "./Readings";
 
 const STATUS = { in_progress: "warn", submitted: "info", approved: "good", flagged: "bad" };
 
@@ -15,13 +16,14 @@ export default function Checklists() {
   const go = (next) => setParams(Object.fromEntries(Object.entries({ tab, ...next }).filter(([, v]) => v)));
 
   if (runId) return <RunView id={runId} onBack={() => go({ run: null })} />;
-  const tabs = [["today", "Today"], ...(can("manager") ? [["review", "Review & history"], ["setup", "Set up checklists"]] : [])];
+  const tabs = [["today", "Today"], ["readings", "Temperature log"], ...(can("manager") ? [["review", "Review & history"], ["setup", "Set up checklists"]] : [])];
   return (
     <>
       <Chips options={tabs} value={tab} onChange={(t) => go({ tab: t, run: null })} />
       {tab === "today" && <Today onOpen={(id) => go({ run: id })} />}
       {tab === "review" && <Review onOpen={(id) => go({ run: id })} />}
       {tab === "setup" && <ChecklistSetup />}
+      {tab === "readings" && <Readings />}
     </>
   );
 }

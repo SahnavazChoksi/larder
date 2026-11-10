@@ -192,3 +192,119 @@ class Suggestions(APIView):
 def price_moves(request):
     return Response(services.recent_price_moves(int(request.query_params.get("days", 14))))
 
+
+
+# ---------- invoice scanning ----------
+
+from rest_framework.parsers import FormParser, MultiPartParser  # noqa: E402
+
+from . import invoices  # noqa: E402
+from .models import InvoiceScan  # noqa: E402
+
+
+class ScanSerializer(serializers.ModelSerializer):
+    number = serializers.CharField(read_only=True)
+    location_name = serializers.CharField(source="location.name", read_only=True)
+    vendor_name = serializers.CharField(source="vendor.name", read_only=True, default=None)
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    file_url = serializers.SerializerMethodField()
+    is_pdf = serializers.SerializerMethodField()
+    order_number = serializers.CharField(source="order.number", read_only=True, default=None)
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InvoiceScan
+        fields = ["id", "number", "location", "location_name", "vendor", "vendor_name", "vendor_text", "status",
+                  "status_label", "invoice_number", "invoice_date", "lines", "engine", "message", "file_url", "is_pdf",
+                  "order", "order_number", "created_at", "total"]
+        read_only_fields = ["location", "status", "engine", "message", "order", "vendor_text"]
+
+    def get_file_url(self, s):
+        return s.file.url if s.file else None
+
+    def get_is_pdf(self, s):
+        return s.file.name.lower().endswith(".pdf") if s.file else False
+
+    def get_total(self, s):
+        return round(sum((x.get("qty") or 0) * (x.get("unit_price") or 0) for x in s.lines), 2)
+
+    def validate_lines(self, lines):
+        clean = []
+        for x in lines:
+            if not isinstance(x, dict):
+                raise serializers.ValidationError("Each line must be an object.")
+            clean.append({
+                "text": str(x.get("text", ""))[:200], "unit_printed": str(x.get("unit_printed", ""))[:20],
+                "item": int(x["item"]) if x.get("item") else None,
+                "qty": float(x["qty"]) if x.get("qty") not in (None, "") else None,
+                "unit_price": float(x["unit_price"]) if x.get("unit_price") not in (None, "") else None,
+                "confidence": x.get("confidence", 100), "note": str(x.get("note", ""))[:120],
+            })
+        return clean
+
+
+def _scan(request, pk):
+    scan = get_object_or_404(InvoiceScan.objects.select_related("location", "vendor", "order"), pk=pk)
+    require_location(request.user, scan.location)
+    return scan
+
+
+class Scans(APIView):
+    permission_classes = [IsCook]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        qs = InvoiceScan.objects.filter(location_id__in=request.user.location_ids()).select_related("location", "vendor", "order")
+        location = location_from_request(request, required=False)
+        if location:
+            qs = qs.filter(location=location)
+        return Response(ScanSerializer(qs[:50], many=True).data)
+
+    def post(self, request):
+        """Multipart: file, location, optional vendor. Anyone receiving a delivery can scan."""
+        location = location_from_request(request)
+        upload = request.FILES.get("file")
+        if not upload:
+            fail("Attach a photo or PDF of the invoice.")
+        vendor = Vendor.objects.filter(pk=request.data.get("vendor")).first() if request.data.get("vendor") else None
+        scan = invoices.create_scan(location, upload, request.user, vendor)
+        log(request.user, "Scanned invoice", f"{scan.number}: {scan.message}", location)
+        return Response(ScanSerializer(scan).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsCook])
+def scan_detail(request, pk):
+    scan = _scan(request, pk)
+    if request.method == "PATCH":
+        if scan.status != InvoiceScan.Status.DRAFT:
+            fail("Only drafts can be changed.")
+        s = ScanSerializer(scan, data=request.data, partial=True)
+        s.is_valid(raise_exception=True)
+        scan = s.save()
+    return Response(ScanSerializer(scan).data)
+
+
+@api_view(["POST"])
+@permission_classes([IsManager])
+def scan_approve(request, pk):
+    """Managers approve because approving can change ingredient prices."""
+    scan = _scan(request, pk)
+    order = invoices.approve(scan, request.user)
+    changes = getattr(scan, "price_changes", [])
+    log(request.user, "Approved scanned invoice",
+        f"{scan.number} → {order.number}, ${order.total():,.2f}" + (f". Price changes: {'; '.join(changes)}" if changes else ""),
+        scan.location)
+    return Response(ScanSerializer(scan).data | {"price_changes": changes})
+
+
+@api_view(["POST"])
+@permission_classes([IsCook])
+def scan_discard(request, pk):
+    scan = _scan(request, pk)
+    if scan.status != InvoiceScan.Status.DRAFT:
+        fail("Only drafts can be discarded.")
+    scan.status = InvoiceScan.Status.DISCARDED
+    scan.save(update_fields=["status"])
+    log(request.user, "Discarded invoice scan", scan.number, scan.location)
+    return Response(ScanSerializer(scan).data)

@@ -15,6 +15,7 @@ class Location(models.Model):
     name = models.CharField(max_length=80)
     city = models.CharField(max_length=60, blank=True)
     kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.OUTLET)
+    brand = models.CharField(max_length=60, blank=True, help_text="Outlets are compared with others of the same brand")
 
     class Meta:
         ordering = ["kind", "name"]

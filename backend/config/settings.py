@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "reports",
     "audit",
     "checklists",
+    "ops",
 ]
 
 MIDDLEWARE = [
@@ -116,6 +117,20 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
+
+# Email for notifications. Prints to the console by default; set EMAIL_HOST etc. to send for real.
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Larder <alerts@larder.local>")
+LARDER_APP_URL = os.environ.get("LARDER_APP_URL", "http://localhost:5173")
+
+# Invoice scanning: set ANTHROPIC_API_KEY to read invoices with Claude. Without it, lines are typed in.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+LARDER_OCR_MODEL = os.environ.get("LARDER_OCR_MODEL", "claude-sonnet-5-5")
 
 # Business settings
 FOOD_COST_TARGET = Decimal(os.environ.get("LARDER_FOOD_COST_TARGET", "0.25"))

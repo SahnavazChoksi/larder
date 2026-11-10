@@ -166,6 +166,11 @@ def receive_transfer(request, pk):
     t = get_object_or_404(_transfer_qs(request.user), pk=pk)
     require_location(request.user, t.to_location)
     short = services.receive_transfer(t, _line_qtys(request), request.user)
+    if short:
+        from ops.services import managers_for, notify
+
+        notify(managers_for(t.to_location), f"{t.number} arrived short at {t.to_location.name}", "; ".join(short),
+               link="/transfers", severity="warn", key=f"short-{t.id}")
     log(request.user, "Received transfer",
         f"{t.number} from {t.from_location.name}" + (": " + "; ".join(short) if short else ", all in full"), t.to_location)
     return Response(TransferSerializer(_transfer_qs(request.user).get(pk=pk)).data)

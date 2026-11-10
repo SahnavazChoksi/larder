@@ -92,6 +92,11 @@ def submit_run(run: ChecklistRun, user) -> list[str]:
     run.status = ChecklistRun.Status.SUBMITTED
     run.submitted_by, run.submitted_at = user, timezone.now()
     run.save(update_fields=["status", "submitted_by", "submitted_at"])
+    from ops.services import raise_issue_for_answer
+
+    for a in run.answers.select_related("task", "run__location", "run__template"):
+        if a.task.is_critical and a.value is not None and a.out_of_range:
+            raise_issue_for_answer(a, user)
     return issues(run)
 
 
@@ -110,6 +115,13 @@ def review_run(run: ChecklistRun, user, decision: str, note="") -> ChecklistRun:
         run.status = ChecklistRun.Status.APPROVED if decision == "approve" else ChecklistRun.Status.FLAGGED
     run.reviewed_by, run.reviewed_at, run.review_note = user, timezone.now(), note.strip()
     run.save(update_fields=["status", "submitted_at", "reviewed_by", "reviewed_at", "review_note"])
+    if decision != "approve" and run.submitted_by and run.submitted_by != user:
+        from ops.services import notify
+
+        verb = "flagged" if decision == "flag" else "reopened"
+        notify([run.submitted_by], f"Your {run.template.name} was {verb}", note.strip(),
+               link=f"/checklists?location={run.location_id}&run={run.id}", severity="warn",
+               key=f"review-{run.id}-{decision}-{run.reviewed_at:%Y%m%d%H%M%S}")
     return run
 
 

@@ -8,7 +8,7 @@ from .models import Item, Location, MenuItem, PriceHistory, Vendor
 class LocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Location
-        fields = ["id", "code", "name", "city", "kind"]
+        fields = ["id", "code", "name", "city", "kind", "brand"]
 
 
 class VendorSerializer(serializers.ModelSerializer):

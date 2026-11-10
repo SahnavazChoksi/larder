@@ -10,6 +10,7 @@ urlpatterns = [
     path("runs/<int:pk>/submit/", views.submit, name="checklist-submit"),
     path("runs/<int:pk>/review/", views.review, name="checklist-review"),
     path("compliance/", views.compliance, name="checklist-compliance"),
+    path("readings/", views.readings, name="checklist-readings"),
     path("templates/", views.Templates.as_view(), name="checklist-templates"),
     path("templates/<int:pk>/", views.template_detail, name="checklist-template"),
     path("sops/", views.Sops.as_view(), name="sops"),

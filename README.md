@@ -14,6 +14,16 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | Area | Features |
 |---|---|
+| **Outlet performance** | Each outlet vs its brand average, green better / red worse: **APC** (spend per cover), average bill, **SSSG** 4-week and quarter vs last year (same weekdays, same stores), **beverage and dessert attach** per cover, **service charge removed %**, complaints per 1,000 covers · weekly sales vs last year · **staffing** required vs actual vs short |
+| **Menu engineering** | Popularity × margin per category (Stars, Plowhorses, Puzzles, Dogs) with what to do about each |
+| **Forecast & smart reorder** | Next 7 days of portions per dish from same-weekday history × trend · orders exactly what the forecast will run short of before each vendor's next delivery |
+| **Invoice scanning** | Photo or PDF of a supplier invoice → lines read, matched to your items, lb converted to kg, price changes flagged → a manager approves and it's booked as a received delivery |
+| **Issues & equipment** | Report broken equipment from the floor · a failed critical checklist reading opens an issue automatically · assign, fix, record cost |
+| **Temperature log** | Every fridge, freezer and hot-holding reading from checklists, charted with its safe range and printable for inspectors |
+| **Shift logbook** | Handover notes between opening and closing teams; important ones notify managers |
+| **Guest complaints** | Log complaints by reason and channel, with comps; feeds the performance sheet |
+| **Team & staffing** | Required headcount per department, employee list, leavers |
+| **Notifications** | In-app alerts plus email: missed checklists, out-of-range readings, flagged checklists, short transfers, critical issues, important handover notes |
 | **Opening & closing checklists** | Managers build checklists per location type · tasks can require a photo (taken on the phone camera) or a reading with limits, e.g. walk-in 0–4 °C, cash over/short ±$5 · each task links to its SOP · staff can't submit until everything is done · managers review photos and readings, then approve, flag or reopen · dashboard shows missed checklists, out-of-range readings and on-time rate |
 | **SOP library** | Step-by-step procedures (food safety, cleaning, cash, security) searchable by everyone, edited by managers |
 | **Stock** | Live stock per location from an append-only ledger · par levels · low-stock and expiry flags · stock counts that record the difference · per-item movement history |
@@ -30,8 +40,8 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | | Cook | Manager | Owner |
 |---|:-:|:-:|:-:|
-| Do checklists with photos, read SOPs, count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
-| Review checklists, edit checklists and SOPs, see costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
+| Do checklists with photos, read SOPs, write logbook notes, report issues, log complaints, scan invoices, count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
+| Review checklists, edit checklists and SOPs, approve scanned invoices, manage staffing and issues, see performance, costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
 | Change recipes and menu prices, manage users | | | ✅ |
 
 The API enforces these rules. The web app only hides what the API would refuse.
@@ -72,7 +82,7 @@ cd backend
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit checklists
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -85,7 +95,7 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit checklists
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists ops
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -93,8 +103,10 @@ python manage.py runserver
 
 `seed_demo` builds a fictional chain (three outlets around the GTA plus a central kitchen) and
 simulates 30 days of trading: daily POS sales, deliveries, kitchen production, transfers, weekly
-counts and wastage, plus a week of opening and closing checklists with placeholder photos
-(including one missed closing and one warm walk-in for the alerts to catch). It takes about a minute. Run `python manage.py seed_demo --reset` to start over.
+counts and wastage, plus 15 months of past sales (for year-on-year growth), a week of opening and
+closing checklists with placeholder photos, staff, complaints, equipment and handover notes. It plants a
+few problems for the alerts to catch: a missed closing, a warm walk-in (which opens an issue), short
+staffing at the central kitchen and a high service-charge removal rate at Brampton. It takes a minute or two. Run `python manage.py seed_demo --reset` to start over.
 
 ### 2. Frontend (React app on port 5173)
 
@@ -157,6 +169,21 @@ python manage.py seed_demo
 | `DJANGO_DEBUG` | `1` | Set to `0` in production |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated |
 | `LARDER_FOOD_COST_TARGET` | `0.25` | Target food cost used for alerts |
+| `ANTHROPIC_API_KEY` | empty | Turns on automatic invoice reading with Claude. Without it, invoice lines are typed in by hand |
+| `LARDER_OCR_MODEL` | `claude-sonnet-5-5` | Model used to read invoices |
+| `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | console | Email for notifications. By default emails are printed in the Django terminal |
+| `LARDER_APP_URL` | `http://localhost:5173` | Used for links in emails |
+
+### Scheduled alerts
+
+Missed checklists, out-of-stock items and critical issues left open for 24 hours are checked by a command.
+Run it every hour (each alert goes to each person only once):
+
+```bash
+python manage.py send_alerts
+```
+
+On Windows use Task Scheduler; on macOS/Linux use cron (`0 * * * * cd /path/backend && .venv/bin/python manage.py send_alerts`).
 
 ---
 
@@ -174,7 +201,15 @@ date,location,pos_code,qty,net_sales
 - `pos_code` is the dish's POS code (set on each menu item)
 - Importing a day that already exists replaces it, including its stock usage
 
-Upload it on the **Sales import** page, or `POST /api/sales/import/` with the file in a `file` field.
+Covers, bills and service charges come from the POS daily summary, a second CSV:
+
+```csv
+date,location,covers,bills,service_charge_bills,service_charge_removed
+2026-11-08,BRM,112,48,6,1
+```
+
+Upload either on the **Sales import** page, or `POST /api/sales/import/` with the file in a `file` field.
+Tick **Past sales** (or send `history=1`) to load last year's figures for growth reports without touching stock.
 A direct POS integration (Toast, Square, Lightspeed APIs) would call the same `sales.services.import_day` function.
 
 ---
@@ -202,7 +237,10 @@ All endpoints are under `/api/` and need `Authorization: Bearer <access token>` 
 | `audit/` | GET | Change log, paginated |
 | `checklists/today/?location=&date=` | GET | Checklists due and their progress |
 | `checklists/runs/` + `{id}/` `{id}/answers/{answer}/` `{id}/submit/` `{id}/review/` | GET POST PATCH | Answers take multipart `photo` uploads |
-| `checklists/templates/` · `checklists/sops/` · `checklists/compliance/` | GET POST PUT PATCH | |
+| `checklists/templates/` · `checklists/sops/` · `checklists/compliance/` · `checklists/readings/` | GET POST PUT PATCH | |
+| `reports/performance/` · `reports/menu-engineering/` · `reports/forecast/` | GET | |
+| `purchasing/invoices/` + `{id}/` `{id}/approve/` `{id}/discard/` | GET POST PATCH | Upload is multipart `file` |
+| `ops/staffing/` `ops/staffing/plan/` `ops/employees/` `ops/complaints/` `ops/equipment/` `ops/issues/` `ops/handover/` `ops/notifications/` | GET POST PATCH | |
 
 ---
 
@@ -214,11 +252,12 @@ backend/
   accounts/      User with role + locations, permissions, login
   catalog/       locations, vendors, items, prep recipes, menu, price history, seed_demo command
   stock/         the ledger: movements, pars, counts, wastage, transfers, production (+ services.py)
-  purchasing/    purchase orders, receiving, reorder suggestions
-  sales/         POS sales import
-  reports/       variance and dashboard (read-only)
+  purchasing/    purchase orders, receiving, reorder suggestions, invoice scanning
+  sales/         POS sales import (item sales and daily covers/bills)
+  reports/       variance, dashboard, performance, menu engineering, forecast (read-only)
   audit/         change log
-  checklists/    SOPs, opening/closing checklists, photo answers, reviews, compliance
+  checklists/    SOPs, opening/closing checklists, photo answers, reviews, compliance, readings
+  ops/           staffing, complaints, equipment issues, handover logbook, notifications, send_alerts command
 frontend/
   src/pages/     one file per screen
   src/ui.jsx     shared components, formatting, charts
@@ -238,12 +277,8 @@ S3 with signed URLs), because anyone with a photo's link could otherwise open it
 
 ## Roadmap
 
-- Menu engineering (popularity × margin per dish)
-- Invoice scanning (OCR) into draft deliveries
-- Sales forecast and automatic reorder
-- Direct POS integrations instead of CSV
-- Unit conversions (buy in cases, count in kg)
+- Direct POS integrations (Toast, Square, Lightspeed APIs) instead of CSV
+- Unit conversions per item (buy in cases, count in kg)
 - Batch/lot tracking for expiry instead of "last delivery" estimates
-- Temperature log charts per fridge, and equipment issues raised straight from a failed checklist task
-- Shift handover notes between opening and closing teams
-- Notifications (email or SMS) when a closing checklist is missed or a critical reading fails
+- Labour cost and sales per labour hour (needs a scheduling/timeclock feed)
+- SMS alerts and a mobile app wrapper

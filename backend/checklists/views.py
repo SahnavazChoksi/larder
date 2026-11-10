@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -238,3 +238,31 @@ def sop_detail(request, pk):
     sop = s.save(updated_by=request.user)
     log(request.user, "Updated SOP", sop.title + ("" if sop.is_active else " (archived)"))
     return Response(SOPSerializer(sop).data)
+
+
+# ---------- readings (temperature log) ----------
+
+@api_view(["GET"])
+@permission_classes([IsCook])
+def readings(request):
+    """Every recorded reading at a location, grouped by what was measured. Printable for inspections."""
+    location = location_from_request(request)
+    days = min(int(request.query_params.get("days", 30)), 400)
+    since = timezone.localdate() - timedelta(days=days)
+    answers = (RunAnswer.objects.filter(run__location=location, run__business_date__gte=since, value__isnull=False)
+               .exclude(task__value_label="").select_related("task", "run__template", "done_by")
+               .order_by("run__business_date", "run__template__kind"))
+    series = {}
+    for a in answers:
+        t = a.task
+        s = series.setdefault(t.value_label, {"label": t.value_label, "unit": t.value_unit,
+                                              "min": t.value_min, "max": t.value_max, "points": []})
+        s["points"].append({
+            "date": a.run.business_date, "checklist": a.run.template.name, "kind": a.run.template.kind,
+            "value": a.value, "ok": not a.out_of_range, "by": a.done_by.display_name if a.done_by else None,
+            "at": a.done_at, "run": a.run_id,
+        })
+    out = sorted(series.values(), key=lambda s: s["label"])
+    for s in out:
+        s["out_of_range"] = sum(1 for p in s["points"] if not p["ok"])
+    return Response({"location": location.id, "since": since, "series": out})

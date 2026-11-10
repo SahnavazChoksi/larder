@@ -18,6 +18,9 @@ from accounts.models import Role, User
 from audit.models import AuditEntry
 from checklists.models import SOP, ChecklistRun, ChecklistTemplate, RunAnswer
 from checklists.seed import seed_checklists
+from ops.models import Complaint, Employee, Equipment, HandoverNote, Issue, Notification, StaffingPlan
+from ops.seed import finish_ops, seed_ops
+from purchasing.models import InvoiceScan
 from catalog.models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
 from purchasing import services as po_services
 from purchasing.models import PurchaseOrder, PurchaseOrderLine
@@ -97,7 +100,15 @@ MENU = [
     ("CB01", "Chicken Biryani", "Mains", 23.95, .7, [("ric", .17), ("chk", .2), ("mar", .05), ("msl", .08), ("ghe", .022), ("onn", .06), ("cil", .004), ("box", .35)]),
     ("AT01", "Aloo Tikki Chaat", "Starters", 12.95, .22, [("pot", .2), ("chp", .03), ("yog", .07), ("cil", .004), ("oil", .035)]),
     ("ML01", "Mango Lassi", "Drinks", 6.95, .65, [("mng", .13), ("yog", .2), ("sug", .015), ("mlk", .06)]),
+    ("CH01", "Masala Chai", "Drinks", 3.95, .55, [("mlk", .18), ("sug", .012), ("gng", .003)]),
+    ("GJ01", "Gulab Jamun", "Desserts", 6.95, .38, [("mlk", .1), ("sug", .05), ("ghe", .02), ("flr", .02)]),
+    ("KF01", "Mango Kulfi", "Desserts", 7.50, .26, [("mlk", .15), ("mng", .04), ("sug", .03), ("crm", .03)]),
 ]
+BRAND = "Saffron Lane"
+# How much each outlet grew vs last year (drives SSSG); and how often guests ask to remove service charge
+GROWTH = {"SQ1": 0.17, "BRM": 0.05, "OAK": 0.11}
+SC_REMOVED = {"SQ1": 0.09, "BRM": 0.21, "OAK": 0.07}
+HISTORY_DAYS = 455  # ~15 months, so quarter-on-quarter-last-year works
 DOW = [0.8, 0.82, 0.9, 1.0, 1.32, 1.42, 1.12]  # Mon..Sun
 OUTLET_SIZE = {"SQ1": 1.25, "BRM": 0.95, "OAK": 0.8}
 # Share of real usage that disappears without a record (over-portioning, theft, bad receiving)
@@ -138,7 +149,8 @@ class Command(BaseCommand):
 
     def wipe(self):
         self.stdout.write("Removing existing Larder data…")
-        for model in [AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
+        for model in [Notification, Issue, Equipment, HandoverNote, Complaint, Employee, StaffingPlan, InvoiceScan,
+                      AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
                       StockCount, Wastage, TransferLine, Transfer, ProductionBatch, ParLevel, PriceHistory, MenuLine,
                       MenuItem, RecipeLine]:
             model.objects.all().delete()
@@ -152,7 +164,8 @@ class Command(BaseCommand):
         today = timezone.localdate()
         start = today - timedelta(days=days)
 
-        self.loc = {code: Location.objects.create(code=code, name=n, city=c, kind=k) for code, n, c, k in LOCATIONS}
+        self.loc = {code: Location.objects.create(code=code, name=n, city=c, kind=k, brand=BRAND if k == "outlet" else "")
+                    for code, n, c, k in LOCATIONS}
         outlets = [self.loc[c] for c in OUTLET_SIZE]
         ck = self.loc["CK"]
         vendors = {k: Vendor.objects.create(name=n, lead_days=lead, delivery_days=dd) for k, (n, lead, dd) in VENDORS.items()}
@@ -221,6 +234,10 @@ class Command(BaseCommand):
         item_mult["OAK"][2] = 1.55  # Oakville loves the lamb
         item_mult["BRM"][5] = 1.35  # Brampton sells more chana
 
+        self.stdout.write(f"  importing {HISTORY_DAYS} days of past sales…")
+        self.history(outlets, start, item_mult)
+        seed_ops([*outlets, ck], self.manager, self.cook, rng)
+
         for n in range(days):
             day = start + timedelta(days=n)
             self.drift_prices(n, days, day)
@@ -239,6 +256,7 @@ class Command(BaseCommand):
         self.open_state(today, ck, outlets)
         photos = seed_checklists([*outlets, ck], self.manager, {"BRM": self.cook, "CK": self.ck_cook}, rng, min(days, 7))
         self.stdout.write(f"  checklists: 4 templates, a week of runs, {photos} demo photos")
+        finish_ops(self.loc)
         self.stdout.write(f"  {Movement.objects.count():,} ledger entries over {days} days")
 
     # ------------------------------------------------------------------
@@ -333,7 +351,37 @@ class Command(BaseCommand):
             lines.append((dish, qty, (dish.price * qty).quantize(D("0.01"))))
             for key, q in recipe:
                 self.usage_since_count[outlet.code][key] = self.usage_since_count[outlet.code].get(key, 0) + qty * q
-        sales_services.import_day(outlet, day, lines, self.manager, source="Toast POS" if outlet.code == "SQ1" else "Square POS")
+        sales_services.import_day(outlet, day, lines, self.manager, source="Toast POS" if outlet.code == "SQ1" else "Square POS",
+                                  totals=self.day_totals(outlet, lines))
+
+    def day_totals(self, outlet, lines):
+        """Covers ≈ mains and biryani portions plus a share of starters; bills ≈ party of 2.3."""
+        rng = self.rng
+        mains = sum(q for dish, q, _ in lines if dish.category == "Mains")
+        starters = sum(q for dish, q, _ in lines if dish.category == "Starters")
+        covers = round((mains * 1.08 + starters * 0.25) * rng.uniform(0.95, 1.05))
+        bills = max(1, round(covers / rng.uniform(2.1, 2.5)))
+        sc_bills = round(bills * rng.uniform(0.10, 0.16))  # large parties get an automatic service charge
+        removed = sum(1 for _ in range(sc_bills) if rng.random() < SC_REMOVED[outlet.code])
+        return {"covers": covers, "bills": bills, "sc_bills": sc_bills, "sc_removed": removed}
+
+    def history(self, outlets, start, item_mult):
+        """Past POS sales for trends and year-on-year growth. No stock usage: Larder wasn't running then."""
+        rng = self.rng
+        for o in outlets:
+            for back in range(HISTORY_DAYS, 0, -1):
+                day = start - timedelta(days=back)
+                # last year's sales were lower by the outlet's growth rate, rising gently toward today
+                level = (1 / (1 + GROWTH[o.code])) * (1 + GROWTH[o.code] * max(0, 364 - back) / 364)
+                season = 1 + 0.06 * (1 if day.month in (11, 12) else -1 if day.month in (1, 2) else 0)
+                lines = []
+                for i, (dish, pop, _) in enumerate(self.menu):
+                    qty = round(22 * pop * OUTLET_SIZE[o.code] * item_mult[o.code][i] * DOW[day.weekday()] * level * season
+                                * rng.uniform(.86, 1.14))
+                    if qty > 0:
+                        lines.append((dish, qty, (dish.price * qty).quantize(D("0.01"))))
+                sales_services.import_day(o, day, lines, self.manager, source="History import",
+                                          totals=self.day_totals(o, lines), history=True)
 
     def waste(self, loc, day):
         rng = self.rng

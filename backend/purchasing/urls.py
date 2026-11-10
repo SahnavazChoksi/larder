@@ -9,4 +9,8 @@ urlpatterns = [
     path("orders/<int:pk>/cancel/", views.cancel_order, name="po-cancel"),
     path("suggestions/", views.Suggestions.as_view(), name="po-suggestions"),
     path("price-moves/", views.price_moves, name="price-moves"),
+    path("invoices/", views.Scans.as_view(), name="invoice-scans"),
+    path("invoices/<int:pk>/", views.scan_detail, name="invoice-scan"),
+    path("invoices/<int:pk>/approve/", views.scan_approve, name="invoice-approve"),
+    path("invoices/<int:pk>/discard/", views.scan_discard, name="invoice-discard"),
 ]

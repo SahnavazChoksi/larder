@@ -37,6 +37,7 @@ def days(request):
     return Response([{
         "id": d.id, "location": d.location_id, "location_name": d.location.name, "business_date": d.business_date,
         "source": d.source, "net_sales": float(d.net or 0), "portions": d.portions or 0, "dishes": d.dishes,
+        "covers": d.covers, "bills": d.bills, "sc_bills": d.sc_bills, "sc_removed": d.sc_removed, "is_history": d.is_history,
         "imported_by": d.imported_by.display_name if d.imported_by else None, "imported_at": d.imported_at,
     } for d in qs])
 
@@ -67,9 +68,10 @@ def import_csv(request):
     upload = request.FILES.get("file")
     if not upload:
         fail("Attach a CSV file in the 'file' field.")
-    if upload.size > 5 * 1024 * 1024:
-        fail("That file is over 5 MB. Split it into smaller exports.")
-    imported = services.import_csv(upload.read(), request.user, request.user.location_ids())
-    for day in imported:
-        log(request.user, "Imported sales", f"{day.location.name} {day.business_date}: {day.lines.count()} dishes", day.location)
-    return Response({"days": len(imported)}, status=status.HTTP_201_CREATED)
+    if upload.size > 20 * 1024 * 1024:
+        fail("That file is over 20 MB. Split it into smaller exports.")
+    history = str(request.data.get("history", "")).lower() in ("1", "true", "yes")
+    kind, days = services.import_csv(upload.read(), request.user, request.user.location_ids(), history=history)
+    label = {"items": "item sales", "summary": "covers and bills"}[kind]
+    log(request.user, "Imported sales", f"{upload.name}: {days} location-days of {label}" + (" (history, no stock usage)" if history else ""))
+    return Response({"kind": kind, "days": days}, status=status.HTTP_201_CREATED)

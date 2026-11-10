@@ -250,3 +250,66 @@ export function Sparkline({ values }) {
     </svg>
   );
 }
+
+/** Two or more series on one axis, e.g. this year vs last year. series: [{name, values, color, dashed}] */
+export function MultiLineChart({ series, labels, format }) {
+  const w = 760, h = 240, L = 56, R = 16, T = 14, B = 44;
+  const all = series.flatMap((s) => s.values);
+  if (!all.length) return <Empty>No data in this range.</Empty>;
+  const max = niceMax(Math.max(...all) * 1.05);
+  const n = labels.length;
+  const x = (i) => L + (n === 1 ? 0 : (i * (w - L - R)) / (n - 1));
+  const y = (v) => T + (h - T - B) * (1 - v / max);
+  return (
+    <>
+      <svg className="chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Comparison chart">
+        {[0, 1, 2, 3, 4].map((k) => (
+          <g key={k}>
+            <line x1={L} x2={w - R} y1={y((max * k) / 4)} y2={y((max * k) / 4)} stroke="var(--line)" />
+            <text x={L - 8} y={y((max * k) / 4) + 4} textAnchor="end">{format((max * k) / 4)}</text>
+          </g>
+        ))}
+        {labels.map((lb, i) => lb && <text key={i} x={x(i)} y={h - 26} textAnchor="middle">{lb}</text>)}
+        {series.map((s) => (
+          <g key={s.name}>
+            <polyline points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} fill="none" stroke={s.color}
+              strokeWidth="2" strokeDasharray={s.dashed ? "5 4" : undefined} />
+            <circle cx={x(s.values.length - 1)} cy={y(s.values[s.values.length - 1])} r="3.5" fill={s.color} />
+          </g>
+        ))}
+      </svg>
+      <div className="legend">
+        {series.map((s) => <span key={s.name}><i style={{ background: s.color }} />{s.name}</span>)}
+      </div>
+    </>
+  );
+}
+
+/** Vertical bars with a value label on each. */
+export function Bars({ values, labels, format = (v) => Math.round(v) }) {
+  const w = 560, h = 200, L = 40, T = 18, B = 26;
+  if (!values.length) return <Empty>No data.</Empty>;
+  const max = niceMax(Math.max(...values, 1));
+  const slot = (w - L - 10) / values.length, bw = slot * 0.6;
+  const y = (v) => T + (h - T - B) * (1 - v / max);
+  return (
+    <svg className="chart" viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Bar chart">
+      {[0, 1, 2, 3, 4].map((k) => (
+        <g key={k}>
+          <line x1={L} x2={w - 10} y1={y((max * k) / 4)} y2={y((max * k) / 4)} stroke="var(--line)" />
+          <text x={L - 6} y={y((max * k) / 4) + 4} textAnchor="end">{Math.round((max * k) / 4)}</text>
+        </g>
+      ))}
+      {values.map((v, i) => {
+        const cx = L + slot * i + slot / 2;
+        return (
+          <g key={i}>
+            <rect x={cx - bw / 2} y={y(v)} width={bw} height={y(0) - y(v)} rx="3" fill="var(--accent)" />
+            <text className="lbl" x={cx} y={y(v) - 5} textAnchor="middle">{format(v)}</text>
+            <text x={cx} y={h - 7} textAnchor="middle">{labels[i]}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
