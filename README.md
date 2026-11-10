@@ -14,6 +14,8 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | Area | Features |
 |---|---|
+| **Opening & closing checklists** | Managers build checklists per location type · tasks can require a photo (taken on the phone camera) or a reading with limits, e.g. walk-in 0–4 °C, cash over/short ±$5 · each task links to its SOP · staff can't submit until everything is done · managers review photos and readings, then approve, flag or reopen · dashboard shows missed checklists, out-of-range readings and on-time rate |
+| **SOP library** | Step-by-step procedures (food safety, cleaning, cash, security) searchable by everyone, edited by managers |
 | **Stock** | Live stock per location from an append-only ledger · par levels · low-stock and expiry flags · stock counts that record the difference · per-item movement history |
 | **Recipes & costing** | Dishes made of ingredients and in-house preps · plate cost rolls up through sub-recipes · food cost % and the price needed to hit target · allergens roll up too |
 | **Purchasing** | Purchase orders (draft → sent → received) · reorder suggestions from par levels net of open orders · receiving updates stock and the ingredient's latest price |
@@ -28,8 +30,8 @@ Built with **Django + Django REST Framework** (API) and **React + Vite** (web ap
 
 | | Cook | Manager | Owner |
 |---|:-:|:-:|:-:|
-| Count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
-| See costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
+| Do checklists with photos, read SOPs, count stock, log wastage, receive deliveries and transfers, cook batches | ✅ | ✅ | ✅ |
+| Review checklists, edit checklists and SOPs, see costs and reports, set par levels, plan production, create and send orders, import sales | | ✅ | ✅ |
 | Change recipes and menu prices, manage users | | | ✅ |
 
 The API enforces these rules. The web app only hides what the API would refuse.
@@ -70,7 +72,7 @@ cd backend
 py -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -83,7 +85,7 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py makemigrations accounts catalog stock purchasing sales audit
+python manage.py makemigrations accounts catalog stock purchasing sales audit checklists
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver
@@ -91,7 +93,8 @@ python manage.py runserver
 
 `seed_demo` builds a fictional chain (three outlets around the GTA plus a central kitchen) and
 simulates 30 days of trading: daily POS sales, deliveries, kitchen production, transfers, weekly
-counts and wastage. It takes about a minute. Run `python manage.py seed_demo --reset` to start over.
+counts and wastage, plus a week of opening and closing checklists with placeholder photos
+(including one missed closing and one warm walk-in for the alerts to catch). It takes about a minute. Run `python manage.py seed_demo --reset` to start over.
 
 ### 2. Frontend (React app on port 5173)
 
@@ -197,6 +200,9 @@ All endpoints are under `/api/` and need `Authorization: Bearer <access token>` 
 | `sales/days/` · `sales/items/` · `sales/import/` | GET / POST | |
 | `reports/dashboard/` · `reports/variance/?location=&start=&end=` | GET | |
 | `audit/` | GET | Change log, paginated |
+| `checklists/today/?location=&date=` | GET | Checklists due and their progress |
+| `checklists/runs/` + `{id}/` `{id}/answers/{answer}/` `{id}/submit/` `{id}/review/` | GET POST PATCH | Answers take multipart `photo` uploads |
+| `checklists/templates/` · `checklists/sops/` · `checklists/compliance/` | GET POST PUT PATCH | |
 
 ---
 
@@ -212,6 +218,7 @@ backend/
   sales/         POS sales import
   reports/       variance and dashboard (read-only)
   audit/         change log
+  checklists/    SOPs, opening/closing checklists, photo answers, reviews, compliance
 frontend/
   src/pages/     one file per screen
   src/ui.jsx     shared components, formatting, charts
@@ -223,6 +230,12 @@ the seed command and tests call the same services.
 
 ---
 
+## Checklist photos
+
+Photos are resized in the browser (max 1600 px JPEG) before upload and saved under `backend/media/`.
+In development Django serves them at `/media/`. **In production, store them privately** (for example
+S3 with signed URLs), because anyone with a photo's link could otherwise open it.
+
 ## Roadmap
 
 - Menu engineering (popularity × margin per dish)
@@ -231,3 +244,6 @@ the seed command and tests call the same services.
 - Direct POS integrations instead of CSV
 - Unit conversions (buy in cases, count in kg)
 - Batch/lot tracking for expiry instead of "last delivery" estimates
+- Temperature log charts per fridge, and equipment issues raised straight from a failed checklist task
+- Shift handover notes between opening and closing teams
+- Notifications (email or SMS) when a closing checklist is missed or a critical reading fails

@@ -88,6 +88,14 @@ export default function Dashboard() {
           <HBars rows={data.top_losses.map((r) => ({ label: r.name, value: r.value }))} format={money0} />
         </Card>
       </div>
+      <Card title="Opening and closing checklists · last 7 days" actions={<button className="btn sm" type="button" onClick={() => navigate("/checklists?tab=review")}>Review</button>}>
+        <div className="tiles">
+          {data.checklists.map((c) => (
+            <Tile key={c.location} label={c.name} value={c.rate == null ? "—" : `${Math.round(c.rate * 100)}%`}
+              note={`${c.submitted} of ${c.expected} done on time`} stripe={c.rate == null ? "" : c.rate < 0.9 ? "bad" : c.rate < 1 ? "warn" : "good"} />
+          ))}
+        </div>
+      </Card>
     </>
   );
 }

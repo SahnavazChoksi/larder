@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "sales",
     "reports",
     "audit",
+    "checklists",
 ]
 
 MIDDLEWARE = [
@@ -94,6 +95,13 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Uploaded files (checklist photos). In production, serve these from protected storage (e.g. S3 with
+# signed URLs) rather than publicly; in development Django serves them itself.
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -101,6 +101,22 @@ svg .lbl { fill: var(--ink); }
 .modal-bg { position: fixed; inset: 0; background: rgba(0, 0, 0, .4); display: grid; place-items: center; z-index: 30; padding: 16px; }
 .modal { background: var(--surface); border-radius: 12px; padding: 20px; max-width: 620px; width: 100%; display: flex; flex-direction: column; gap: 14px; max-height: 90%; overflow: auto; }
 
+/* Checklists */
+.progress { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.progress span { display: block; height: 100%; background: var(--accent); }
+.tasks { display: flex; flex-direction: column; }
+.task { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.task:last-child { border-bottom: 0; }
+.task.done .check b { color: var(--muted); }
+.check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.task-body { padding-left: 32px; }
+.task > input[type="text"], .task > .note { margin-left: 32px; }
+.thumb { border: 1px solid var(--line); border-radius: 6px; padding: 0; background: none; cursor: zoom-in; }
+.thumb img { display: block; width: 72px; height: 54px; object-fit: cover; border-radius: 5px; }
+textarea { width: 100%; resize: vertical; }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; max-width: 65ch; }
+
 .login { min-height: 100%; display: grid; place-items: center; padding: 16px; }
 .login form { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 28px; width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 14px; }
 .login input { width: 100%; padding: 8px 10px; }

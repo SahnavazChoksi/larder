@@ -163,6 +163,11 @@ def dashboard(user, start: date, end: date, location: Location | None = None) ->
         alerts.append({"severity": "warn", "title": f"{po.number} from {po.vendor.name} is late",
                        "detail": f"Expected {po.expected_on:%b %d} at {po.location.name}.", "link": "/purchasing"})
 
+    from checklists.services import alerts as checklist_alerts, compliance
+
+    alerts.extend(checklist_alerts(scope))
+    checks = compliance(scope, end - timedelta(days=6), end)
+
     order = {"bad": 0, "warn": 1, "info": 2}
     alerts.sort(key=lambda a: order[a["severity"]])
 
@@ -185,4 +190,5 @@ def dashboard(user, start: date, end: date, location: Location | None = None) ->
         "top_losses": sorted(({"item": k, **v} for k, v in losses.items() if v["value"] > 0),
                              key=lambda r: -r["value"])[:8],
         "alerts": alerts,
+        "checklists": checks["locations"],
     }

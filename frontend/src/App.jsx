@@ -2,12 +2,14 @@ import { useEffect } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "./auth";
 import Audit from "./pages/Audit";
+import Checklists from "./pages/Checklists";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Production from "./pages/Production";
 import Purchasing from "./pages/Purchasing";
 import Recipes from "./pages/Recipes";
 import Sales from "./pages/Sales";
+import Sops from "./pages/Sops";
 import Stock from "./pages/Stock";
 import Transfers from "./pages/Transfers";
 import Users from "./pages/Users";
@@ -17,6 +19,8 @@ import Wastage from "./pages/Wastage";
 // One place that says which role sees which page. The API enforces the same rules.
 const PAGES = [
   { path: "/", label: "Dashboard", group: "Overview", min: "manager", element: <Dashboard /> },
+  { path: "/checklists", label: "Checklists", group: "Daily operations", min: "cook", element: <Checklists /> },
+  { path: "/sops", label: "SOPs", group: "Daily operations", min: "cook", element: <Sops /> },
   { path: "/stock", label: "Stock & counts", group: "Stock", min: "cook", element: <Stock /> },
   { path: "/transfers", label: "Transfers", group: "Stock", min: "cook", element: <Transfers /> },
   { path: "/production", label: "Central kitchen", group: "Stock", min: "cook", element: <Production /> },

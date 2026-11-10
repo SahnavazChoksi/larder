@@ -16,6 +16,8 @@ from django.utils import timezone
 
 from accounts.models import Role, User
 from audit.models import AuditEntry
+from checklists.models import SOP, ChecklistRun, ChecklistTemplate, RunAnswer
+from checklists.seed import seed_checklists
 from catalog.models import Item, Location, MenuItem, MenuLine, PriceHistory, RecipeLine, Vendor
 from purchasing import services as po_services
 from purchasing.models import PurchaseOrder, PurchaseOrderLine
@@ -136,7 +138,7 @@ class Command(BaseCommand):
 
     def wipe(self):
         self.stdout.write("Removing existing Larder data…")
-        for model in [AuditEntry, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
+        for model in [AuditEntry, RunAnswer, ChecklistRun, ChecklistTemplate, SOP, SalesLine, SalesDay, PurchaseOrderLine, PurchaseOrder, Movement, StockCountLine,
                       StockCount, Wastage, TransferLine, Transfer, ProductionBatch, ParLevel, PriceHistory, MenuLine,
                       MenuItem, RecipeLine]:
             model.objects.all().delete()
@@ -235,6 +237,8 @@ class Command(BaseCommand):
                     self.count(loc, day)
 
         self.open_state(today, ck, outlets)
+        photos = seed_checklists([*outlets, ck], self.manager, {"BRM": self.cook, "CK": self.ck_cook}, rng, min(days, 7))
+        self.stdout.write(f"  checklists: 4 templates, a week of runs, {photos} demo photos")
         self.stdout.write(f"  {Movement.objects.count():,} ledger entries over {days} days")
 
     # ------------------------------------------------------------------
